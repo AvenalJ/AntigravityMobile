@@ -2,11 +2,11 @@
 
 A mobile-friendly dashboard for [Antigravity IDE](https://antigravity.dev/) that lets you monitor your AI conversations and model quotas from any device.
 
-![Antigravity Mobile Dashboard](screenshots/1.png)
-
-![Antigravity Mobile Chat](screenshots/2.png)
-
-![Antigravity Mobile Features](screenshots/3.png)
+<p align="center">
+  <img src="screenshots/1.png" width="200" alt="Dashboard" />
+  <img src="screenshots/2.png" width="200" alt="Chat" />
+  <img src="screenshots/3.png" width="200" alt="Features" />
+</p>
 
 ## ✨ Features
 
