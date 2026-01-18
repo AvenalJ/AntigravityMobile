@@ -1,0 +1,937 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Antigravity - Lite</title>
+    <link rel="icon"
+        href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
+    <style>
+        :root {
+            --bg-dark: #050508;
+            --bg-card: rgba(15, 15, 25, 0.8);
+            --accent-primary: #8b5cf6;
+            --text-primary: #ffffff;
+            --text-secondary: rgba(255, 255, 255, 0.7);
+            --text-muted: rgba(255, 255, 255, 0.4);
+            --border: rgba(255, 255, 255, 0.08);
+            --success: #22c55e;
+            --error: #ef4444;
+        }
+
+        .light-theme {
+            --bg-dark: #f5f5f7;
+            --bg-card: rgba(255, 255, 255, 0.9);
+            --text-primary: #1a1a1a;
+            --text-secondary: rgba(0, 0, 0, 0.7);
+            --text-muted: rgba(0, 0, 0, 0.4);
+            --border: rgba(0, 0, 0, 0.1);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-dark);
+            color: var(--text-primary);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* Header */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 16px;
+            background: var(--bg-card);
+            border-bottom: 1px solid var(--border);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .logo-icon {
+            font-size: 24px;
+        }
+
+        .logo-text {
+            font-size: 16px;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--accent-primary), #6366f1);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--error);
+        }
+
+        .status-dot.connected {
+            background: var(--success);
+            box-shadow: 0 0 8px var(--success);
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .icon-btn {
+            width: 36px;
+            height: 36px;
+            border: none;
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-secondary);
+            border-radius: 10px;
+            font-size: 16px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+
+        .icon-btn:hover {
+            background: rgba(139, 92, 246, 0.2);
+            color: var(--accent-primary);
+        }
+
+        .full-mode-link {
+            font-size: 11px;
+            color: var(--text-muted);
+            text-decoration: none;
+            padding: 6px 10px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            transition: all 0.2s;
+        }
+
+        .full-mode-link:hover {
+            background: rgba(139, 92, 246, 0.2);
+            color: var(--accent-primary);
+        }
+
+        /* Login Screen */
+        .login-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: var(--bg-dark);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .login-screen.hidden {
+            display: none;
+        }
+
+        .login-card {
+            text-align: center;
+            padding: 32px;
+        }
+
+        .login-logo {
+            font-size: 48px;
+            margin-bottom: 16px;
+        }
+
+        .login-title {
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .login-subtitle {
+            font-size: 13px;
+            color: var(--text-muted);
+            margin-bottom: 24px;
+        }
+
+        .pin-input {
+            width: 200px;
+            padding: 14px 20px;
+            font-size: 24px;
+            text-align: center;
+            letter-spacing: 8px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            color: var(--text-primary);
+            margin-bottom: 16px;
+        }
+
+        .pin-input:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+        }
+
+        .login-btn {
+            width: 200px;
+            padding: 14px;
+            background: linear-gradient(135deg, var(--accent-primary), #6366f1);
+            border: none;
+            border-radius: 12px;
+            color: white;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .login-error {
+            color: var(--error);
+            font-size: 13px;
+            margin-top: 12px;
+        }
+
+        /* Chat Container */
+        .chat-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .cascade-view {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px;
+            min-height: 0;
+            /* Important for flex overflow */
+        }
+
+        .chat-empty {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: var(--text-muted);
+            font-size: 14px;
+            gap: 8px;
+        }
+
+        .chat-empty .icon {
+            font-size: 40px;
+            opacity: 0.5;
+        }
+
+        /* Input Area - Stays at bottom via flex */
+        .input-area {
+            padding: 12px 16px;
+            background: var(--bg-card);
+            border-top: 1px solid var(--border);
+            flex-shrink: 0;
+            /* Don't shrink, stay at natural height */
+        }
+
+        .quick-chips {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 10px;
+            overflow-x: auto;
+            padding-bottom: 4px;
+        }
+
+        .quick-chip {
+            padding: 6px 14px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            color: var(--text-secondary);
+            font-size: 13px;
+            white-space: nowrap;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .quick-chip:hover {
+            background: rgba(139, 92, 246, 0.15);
+            border-color: rgba(139, 92, 246, 0.4);
+            color: var(--accent-primary);
+        }
+
+        .input-row {
+            display: flex;
+            gap: 10px;
+        }
+
+        .chat-input {
+            flex: 1;
+            padding: 12px 16px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border);
+            border-radius: 24px;
+            color: var(--text-primary);
+            font-size: 14px;
+        }
+
+        .chat-input:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+        }
+
+        .chat-input::placeholder {
+            color: var(--text-muted);
+        }
+
+        .send-btn {
+            width: 44px;
+            height: 44px;
+            border: none;
+            background: linear-gradient(135deg, var(--accent-primary), #6366f1);
+            border-radius: 50%;
+            color: white;
+            font-size: 18px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* Toast */
+        .toast-container {
+            position: fixed;
+            bottom: 100px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 1000;
+        }
+
+        .toast {
+            padding: 12px 18px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            color: var(--text-primary);
+            font-size: 13px;
+            animation: toastIn 0.3s ease;
+        }
+
+        .toast.success {
+            border-color: var(--success);
+        }
+
+        .toast.error {
+            border-color: var(--error);
+        }
+
+        @keyframes toastIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Cascade content styling - control injected IDE content */
+        .cascade-view {
+            flex: 1;
+            overflow-y: auto;
+            overflow-x: hidden;
+            padding: 8px;
+            position: relative;
+            min-height: 0;
+            /* Important for flex children */
+        }
+
+        /* Force readable text and control layout */
+        .cascade-view,
+        .cascade-view * {
+            color: var(--text-primary) !important;
+            max-width: 100% !important;
+            box-sizing: border-box !important;
+        }
+
+        .cascade-view a {
+            color: var(--accent-primary) !important;
+        }
+
+        .cascade-view code,
+        .cascade-view pre {
+            color: #e0e0e0 !important;
+            background: rgba(0, 0, 0, 0.8) !important;
+            border-radius: 6px;
+            padding: 2px 6px;
+            white-space: pre-wrap !important;
+            word-break: break-word !important;
+        }
+
+        /* Light theme overrides */
+        .light-theme .cascade-view {
+            background: #ffffff !important;
+        }
+
+        .light-theme .cascade-view code,
+        .light-theme .cascade-view pre {
+            color: #1a1a2e !important;
+            background: rgba(0, 0, 0, 0.05) !important;
+        }
+
+        /* Ensure images and content don't overflow */
+        .cascade-view img,
+        .cascade-view svg {
+            max-width: 100% !important;
+            height: auto !important;
+        }
+
+        /* Control any absolutely positioned or oversized elements */
+        .cascade-view>div,
+        .cascade-view>div>div,
+        .cascade-view>div>div>div,
+        .cascade-view>div>div>div>div,
+        .cascade-view>div>div>div>div>div {
+            max-height: none !important;
+            min-height: 0 !important;
+            height: auto !important;
+            position: relative !important;
+            padding: 0 !important;
+            margin: 0 !important;
+        }
+
+        /* Collapse empty elements */
+        .cascade-view>div:empty,
+        .cascade-view>div>div:empty {
+            display: none !important;
+        }
+
+        /* Remove any fixed heights from wrappers */
+        .cascade-view [style*="height"]:not(img):not(svg):not(video) {
+            height: auto !important;
+            min-height: 0 !important;
+            max-height: none !important;
+        }
+
+        /* Hide the virtualized scroll placeholder divs (gray loading boxes) */
+        .cascade-view .bg-gray-500\/10:not(:has(*)),
+        .cascade-view [class*="bg-gray-500"]:not(:has(*)) {
+            display: none !important;
+        }
+
+        /* Also target by the rounded-lg class pattern often used with placeholders */
+        .cascade-view .rounded-lg.bg-gray-500\/10 {
+            display: none !important;
+        }
+
+        /* Flatten nested flex containers */
+        .cascade-view [style*="display: flex"],
+        .cascade-view [style*="display:flex"] {
+            display: block !important;
+        }
+
+        /* Reset any flex containers that might cause issues */
+        .cascade-view [style*="flex"] {
+            flex: 0 0 auto !important;
+        }
+
+        /* Prevent fixed/absolute positioning from breaking layout */
+        .cascade-view [style*="position: fixed"],
+        .cascade-view [style*="position: absolute"] {
+            position: relative !important;
+        }
+
+        /* Hide elements with extremely large min-height (virtualized scroll containers) */
+        .cascade-view [style*="min-height"] {
+            min-height: 0 !important;
+        }
+
+        /* Dynamic viewport height support for modern browsers */
+        @supports (height: 100dvh) {
+            body {
+                height: 100dvh;
+            }
+        }
+
+        /* Mobile-specific fixes (up to 767px) */
+        @media screen and (max-width: 767px) {
+            body {
+                height: 100vh;
+                height: 100dvh;
+                /* Dynamic viewport height - accounts for mobile browser chrome */
+                min-height: 0;
+                overflow: hidden;
+            }
+
+            .chat-container {
+                flex: 1 1 0;
+                min-height: 0;
+                display: flex;
+                flex-direction: column;
+                overflow: hidden;
+            }
+
+            .cascade-view {
+                flex: 1 1 0;
+                min-height: 0;
+                overflow-y: auto;
+                overflow-x: hidden;
+                -webkit-overflow-scrolling: touch;
+            }
+
+            .input-area {
+                flex-shrink: 0;
+                position: sticky;
+                bottom: 0;
+                left: 0;
+                right: 0;
+                padding: 10px 12px;
+                padding-bottom: max(10px, env(safe-area-inset-bottom));
+                background: var(--bg-card);
+                border-top: 1px solid var(--border);
+                z-index: 50;
+            }
+
+            .quick-chips {
+                gap: 6px;
+                margin-bottom: 8px;
+            }
+
+            .quick-chip {
+                padding: 5px 10px;
+                font-size: 12px;
+            }
+
+            .input-row {
+                gap: 8px;
+            }
+
+            .chat-input {
+                padding: 10px 14px;
+                font-size: 16px;
+                /* Prevents iOS zoom on focus */
+            }
+
+            .send-btn {
+                width: 40px;
+                height: 40px;
+                flex-shrink: 0;
+            }
+
+            .header {
+                padding: 10px 12px;
+            }
+        }
+
+        /* Tablet-specific fixes (768px - 1024px) */
+        @media screen and (min-width: 768px) and (max-width: 1024px) {
+            body {
+                height: 100vh;
+                height: 100dvh;
+                /* Dynamic viewport height for better tablet support */
+                min-height: 0;
+                overflow: hidden;
+            }
+
+            .chat-container {
+                flex: 1 1 0;
+                min-height: 0;
+                display: flex;
+                flex-direction: column;
+                overflow: hidden;
+            }
+
+            .cascade-view {
+                flex: 1 1 0;
+                min-height: 0;
+                overflow-y: auto;
+                -webkit-overflow-scrolling: touch;
+            }
+
+            .input-area {
+                flex-shrink: 0;
+                position: sticky;
+                bottom: 0;
+                padding-bottom: max(12px, env(safe-area-inset-bottom));
+                z-index: 50;
+            }
+        }
+
+        /* Keyboard visibility handling via visualViewport API */
+        .keyboard-open .cascade-view {
+            max-height: 40vh !important;
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Login Screen -->
+    <div class="login-screen hidden" id="loginScreen">
+        <div class="login-card">
+            <div class="login-logo">🔐</div>
+            <div class="login-title">Enter PIN</div>
+            <div class="login-subtitle">Authentication required</div>
+            <input type="tel" class="pin-input" id="pinInput" maxlength="6" placeholder="••••" autocomplete="off">
+            <button class="login-btn" onclick="submitPin()">Unlock</button>
+            <div class="login-error" id="loginError" style="display: none;"></div>
+        </div>
+    </div>
+
+    <!-- Header -->
+    <header class="header">
+        <div class="header-left">
+            <div class="logo">
+                <span class="logo-icon">⚡</span>
+                <span class="logo-text">Antigravity</span>
+            </div>
+            <div class="status-dot" id="statusDot"></div>
+        </div>
+        <div class="header-right">
+            <button class="icon-btn" id="themeToggle" onclick="toggleTheme()">🌙</button>
+            <a href="/" class="full-mode-link">Dashboard →</a>
+        </div>
+    </header>
+
+    <!-- Chat Container -->
+    <div class="chat-container">
+        <div class="cascade-view" id="cascade-container">
+            <div class="chat-empty">
+                <span class="icon">💬</span>
+                <span>Connecting to Antigravity...</span>
+            </div>
+        </div>
+
+        <div class="input-area">
+            <div class="quick-chips">
+                <button class="quick-chip" onclick="sendQuick('continue')">Continue</button>
+                <button class="quick-chip" onclick="sendQuick('yes')">Yes</button>
+                <button class="quick-chip" onclick="sendQuick('no')">No</button>
+            </div>
+            <div class="input-row">
+                <input type="text" class="chat-input" id="chatInput" placeholder="Send a message..."
+                    onkeypress="if(event.key==='Enter')sendMessage()">
+                <button class="send-btn" onclick="sendMessage()">➤</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <script>
+        const serverUrl = window.location.origin;
+        let authToken = localStorage.getItem('authToken');
+        let ws = null;
+        let lastCascadeHash = null;
+        let cssLoaded = false;
+
+        // ====================================================================
+        // Theme
+        // ====================================================================
+        function initTheme() {
+            const saved = localStorage.getItem('theme') || 'dark';
+            document.body.classList.toggle('light-theme', saved === 'light');
+            updateThemeIcon();
+        }
+
+        function toggleTheme() {
+            document.body.classList.toggle('light-theme');
+            const theme = document.body.classList.contains('light-theme') ? 'light' : 'dark';
+            localStorage.setItem('theme', theme);
+            updateThemeIcon();
+        }
+
+        function updateThemeIcon() {
+            const isLight = document.body.classList.contains('light-theme');
+            document.getElementById('themeToggle').textContent = isLight ? '☀️' : '🌙';
+        }
+
+        // ====================================================================
+        // Auth
+        // ====================================================================
+        async function authFetch(url, options = {}) {
+            const headers = { ...(options.headers || {}) };
+            if (authToken) {
+                headers['Authorization'] = `Bearer ${authToken}`;
+            }
+            const res = await fetch(url, { ...options, headers });
+            if (res.status === 401) {
+                try {
+                    const clonedRes = res.clone();
+                    const data = await clonedRes.json();
+                    if (data.needsAuth) {
+                        authToken = null;
+                        localStorage.removeItem('authToken');
+                        showLoginScreen();
+                    }
+                } catch (e) { }
+            }
+            return res;
+        }
+
+        async function checkAuth() {
+            try {
+                // First check if auth is enabled (no token needed for this)
+                const res = await fetch(`${serverUrl}/api/auth/status`);
+                const data = await res.json();
+
+                if (!data.authEnabled) {
+                    // Auth not enabled, proceed without login
+                    hideLoginScreen();
+                    return true;
+                }
+
+                // Auth is enabled, check if we have a valid token
+                if (authToken) {
+                    const testRes = await authFetch(`${serverUrl}/api/status`);
+                    if (testRes.ok) {
+                        hideLoginScreen();
+                        return true;
+                    }
+                }
+
+                // Need to login
+                showLoginScreen();
+                return false;
+            } catch (e) {
+                console.error('Auth check failed:', e);
+                return false;
+            }
+        }
+
+        function showLoginScreen() {
+            document.getElementById('loginScreen').classList.remove('hidden');
+        }
+
+        function hideLoginScreen() {
+            document.getElementById('loginScreen').classList.add('hidden');
+        }
+
+        async function submitPin() {
+            const pin = document.getElementById('pinInput').value;
+            const errorEl = document.getElementById('loginError');
+            try {
+                const res = await fetch(`${serverUrl}/api/auth/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ pin })
+                });
+                const data = await res.json();
+                if (data.success && data.token) {
+                    authToken = data.token;
+                    localStorage.setItem('authToken', authToken);
+                    hideLoginScreen();
+                    errorEl.style.display = 'none';
+                    startPolling();
+                } else {
+                    errorEl.textContent = data.error || 'Invalid PIN';
+                    errorEl.style.display = 'block';
+                }
+            } catch (e) {
+                errorEl.textContent = 'Connection error';
+                errorEl.style.display = 'block';
+            }
+        }
+
+        // ====================================================================
+        // WebSocket
+        // ====================================================================
+        function connectWebSocket() {
+            const wsUrl = serverUrl.replace('http', 'ws') + '/ws';
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = () => {
+                document.getElementById('statusDot').classList.add('connected');
+            };
+
+            ws.onclose = () => {
+                document.getElementById('statusDot').classList.remove('connected');
+                setTimeout(connectWebSocket, 3000);
+            };
+
+            ws.onerror = () => {
+                document.getElementById('statusDot').classList.remove('connected');
+            };
+        }
+
+        // ====================================================================
+        // Chat Polling
+        // ====================================================================
+        let pollTimer = null;
+
+        function startPolling() {
+            if (pollTimer) return;
+            fetchChat();
+            pollTimer = setInterval(fetchChat, 2000);
+        }
+
+        async function fetchChat() {
+            try {
+                const res = await authFetch(`${serverUrl}/api/chat/snapshot`);
+                if (!res.ok) return;
+                const data = await res.json();
+
+                if (data.html) {
+                    const hash = simpleHash(data.html);
+                    if (hash !== lastCascadeHash) {
+                        lastCascadeHash = hash;
+
+                        if (!cssLoaded && data.css) {
+                            const style = document.createElement('style');
+                            style.id = 'cascadeStyles';
+                            style.textContent = data.css;
+                            document.head.appendChild(style);
+                            cssLoaded = true;
+                        }
+
+                        const container = document.getElementById('cascade-container');
+                        container.innerHTML = data.html;
+
+                        // Scroll to bottom - find the last actual content element
+                        setTimeout(() => {
+                            // Try to find the last meaningful element
+                            const lastElement = container.querySelector(':scope > div:last-child') || container.lastElementChild;
+                            if (lastElement) {
+                                lastElement.scrollIntoView({ behavior: 'instant', block: 'end' });
+                            } else {
+                                container.scrollTop = container.scrollHeight;
+                            }
+                        }, 100);
+                    }
+                } else if (data.error) {
+                    document.getElementById('cascade-container').innerHTML = `
+                        <div class="chat-empty">
+                            <span class="icon">⚠️</span>
+                            <span>${data.error}</span>
+                        </div>
+                    `;
+                }
+            } catch (e) {
+                console.log('Chat fetch error:', e);
+            }
+        }
+
+        function simpleHash(str) {
+            let hash = 0;
+            for (let i = 0; i < str.length; i++) {
+                const char = str.charCodeAt(i);
+                hash = ((hash << 5) - hash) + char;
+                hash = hash & hash;
+            }
+            return hash;
+        }
+
+        // ====================================================================
+        // Send Message
+        // ====================================================================
+        async function sendMessage() {
+            const input = document.getElementById('chatInput');
+            const text = input.value.trim();
+            if (!text) return;
+
+            try {
+                const res = await authFetch(`${serverUrl}/api/cdp/inject`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text, submit: true })
+                });
+                const result = await res.json();
+                if (result.success) {
+                    input.value = '';
+                    showToast('Sent!', 'success');
+                } else {
+                    throw new Error(result.error);
+                }
+            } catch (e) {
+                showToast('Failed to send', 'error');
+            }
+        }
+
+        function sendQuick(cmd) {
+            document.getElementById('chatInput').value = cmd;
+            sendMessage();
+        }
+
+        // ====================================================================
+        // Toast
+        // ====================================================================
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.textContent = message;
+            container.appendChild(toast);
+            setTimeout(() => toast.remove(), 3000);
+        }
+
+        // ====================================================================
+        // Init
+        // ====================================================================
+        initTheme();
+        checkAuth().then((authOk) => {
+            if (authOk) {
+                connectWebSocket();
+                startPolling();
+            }
+        });
+
+        // PIN input - auto-focus and enter to submit
+        document.getElementById('pinInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') submitPin();
+        });
+
+        // ====================================================================
+        // Mobile Keyboard Detection using visualViewport API
+        // ====================================================================
+        if (window.visualViewport) {
+            const initialHeight = window.visualViewport.height;
+
+            window.visualViewport.addEventListener('resize', () => {
+                const currentHeight = window.visualViewport.height;
+                const keyboardOpen = currentHeight < initialHeight * 0.8;
+
+                document.body.classList.toggle('keyboard-open', keyboardOpen);
+
+                // Ensure input stays visible when keyboard opens
+                if (keyboardOpen) {
+                    const inputArea = document.querySelector('.input-area');
+                    if (inputArea) {
+                        inputArea.scrollIntoView({ behavior: 'instant', block: 'end' });
+                    }
+                }
+            });
+        }
+
+        // Handle iOS Safari focus quirks
+        document.getElementById('chatInput').addEventListener('focus', () => {
+            setTimeout(() => {
+                const inputArea = document.querySelector('.input-area');
+                if (inputArea) {
+                    inputArea.scrollIntoView({ behavior: 'instant', block: 'end' });
+                }
+            }, 300);
+        });
+    </script>
+</body>
+
+</html>

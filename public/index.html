@@ -6,6 +6,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Antigravity Control</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Highlight.js for code syntax highlighting -->
+    <link rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
     <style>
         :root {
             --bg-dark: #050508;
@@ -85,6 +89,12 @@
             min-height: 100vh;
             overflow-x: hidden;
             -webkit-font-smoothing: antialiased;
+        }
+
+        body.no-scroll {
+            overflow: hidden;
+            position: fixed;
+            width: 100%;
         }
 
         /* Animated background */
@@ -429,7 +439,7 @@
             display: flex;
             flex-direction: column;
             height: calc(100vh - 180px);
-            max-height: 600px;
+            /* Removed max-height to allow full space on tablets */
         }
 
         .chat-messages {
@@ -626,6 +636,239 @@
             transform: scale(0.95);
         }
 
+        /* File Browser Panel */
+        .files-panel {
+            position: fixed;
+            top: 0;
+            left: 0;
+            bottom: 70px;
+            width: 85%;
+            max-width: 320px;
+            background: var(--bg-dark);
+            border-right: 1px solid var(--border);
+            z-index: 150;
+            transform: translateX(-100%);
+            transition: transform 0.3s ease;
+            display: flex;
+            flex-direction: column;
+            overscroll-behavior: contain;
+            /* Prevent scroll leak */
+        }
+
+        .files-panel.open {
+            transform: translateX(0);
+        }
+
+        .files-panel-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 149;
+            display: none;
+        }
+
+        .files-panel-overlay.open {
+            display: block;
+        }
+
+        .files-header {
+            padding: 16px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .files-header h3 {
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        .files-close {
+            width: 32px;
+            height: 32px;
+            background: var(--bg-glass);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-secondary);
+            font-size: 18px;
+            cursor: pointer;
+        }
+
+        .files-breadcrumb {
+            padding: 8px 16px;
+            font-size: 11px;
+            color: var(--text-muted);
+            border-bottom: 1px solid var(--border);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .files-list {
+            flex: 1;
+            min-height: 0;
+            /* Critical for flex child scrolling */
+            overflow-y: auto;
+            overflow-x: hidden;
+            padding: 8px;
+            -webkit-overflow-scrolling: touch;
+            /* Smooth scroll on iOS */
+            overscroll-behavior: contain;
+            /* Prevent scroll leak to parent */
+            touch-action: pan-y;
+            /* Ensure vertical touch scrolling works */
+        }
+
+        .file-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 12px;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .file-item:hover {
+            background: var(--bg-glass);
+        }
+
+        .file-item.active {
+            background: rgba(139, 92, 246, 0.15);
+        }
+
+        .file-icon {
+            font-size: 20px;
+            width: 28px;
+            text-align: center;
+        }
+
+        .file-name {
+            flex: 1;
+            font-size: 14px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .file-size {
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+
+        /* File Viewer Modal */
+        .file-viewer {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: var(--bg-dark);
+            z-index: 200;
+            display: none;
+            flex-direction: column;
+        }
+
+        .file-viewer.open {
+            display: flex;
+        }
+
+        .file-viewer-header {
+            padding: 16px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .file-viewer-title {
+            font-size: 14px;
+            font-weight: 600;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .file-viewer-content {
+            flex: 1;
+            overflow: auto;
+            padding: 16px;
+        }
+
+        .file-viewer-content pre {
+            margin: 0;
+            font-family: 'Fira Code', 'SF Mono', monospace;
+            font-size: 13px;
+            line-height: 1.5;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        /* File Editor */
+        .file-editor {
+            width: 100%;
+            height: 100%;
+            background: var(--bg-dark);
+            color: var(--text-primary);
+            border: none;
+            padding: 16px;
+            font-family: 'Fira Code', 'SF Mono', monospace;
+            font-size: 13px;
+            line-height: 1.5;
+            resize: none;
+            outline: none;
+        }
+
+        .file-viewer-actions {
+            display: flex;
+            gap: 10px;
+            padding: 12px 16px;
+            border-top: 1px solid var(--border);
+            background: var(--bg-card);
+        }
+
+        .file-viewer-actions .btn {
+            flex: 1;
+            padding: 12px;
+            border-radius: 12px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-edit {
+            background: rgba(139, 92, 246, 0.2);
+            border: 1px solid var(--accent-primary);
+            color: var(--accent-primary);
+            border-radius: 8px;
+            padding: 8px 12px;
+            font-size: 13px;
+            cursor: pointer;
+        }
+
+        .btn-save {
+            background: rgba(34, 197, 94, 0.2);
+            border: 1px solid var(--success);
+            color: var(--success);
+        }
+
+        .btn-cancel {
+            background: rgba(239, 68, 68, 0.2);
+            border: 1px solid var(--error);
+            color: var(--error);
+        }
+
+        .file-viewer-header-btns {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
         /* Quick Actions in Chat */
         .quick-actions {
             display: flex;
@@ -693,13 +936,40 @@
             transition: transform 0.2s;
         }
 
+        .nav-icon {
+            width: 20px;
+            height: 20px;
+            stroke: currentColor;
+            transition: transform 0.2s;
+        }
+
         .nav-item.active {
             background: var(--accent-gradient);
             color: #ffffff;
         }
 
-        .nav-item.active .icon {
+        .nav-item.active .icon,
+        .nav-item.active .nav-icon {
             transform: scale(1.1);
+        }
+
+        .btn-icon {
+            width: 16px;
+            height: 16px;
+            vertical-align: middle;
+            margin-right: 4px;
+        }
+
+        .section-icon {
+            width: 16px;
+            height: 16px;
+        }
+
+        .status-icon {
+            width: 14px;
+            height: 14px;
+            vertical-align: middle;
+            margin-right: 4px;
         }
 
         /* Settings */
@@ -747,6 +1017,54 @@
             border-radius: 8px;
             color: var(--accent-primary);
             font-family: monospace;
+        }
+
+        /* Toggle Switch */
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 50px;
+            height: 28px;
+        }
+
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(255, 255, 255, 0.1);
+            transition: 0.3s;
+            border-radius: 28px;
+            border: 1px solid var(--border);
+        }
+
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 22px;
+            width: 22px;
+            left: 2px;
+            bottom: 2px;
+            background-color: white;
+            transition: 0.3s;
+            border-radius: 50%;
+        }
+
+        .toggle-switch input:checked+.toggle-slider {
+            background: var(--accent-gradient);
+            border-color: var(--accent-primary);
+        }
+
+        .toggle-switch input:checked+.toggle-slider:before {
+            transform: translateX(22px);
         }
 
         /* Toast */
@@ -981,6 +1299,10 @@
             margin-top: 12px;
         }
 
+        .quota-refresh-btn svg {
+            stroke: white;
+        }
+
         .quota-refresh-btn:hover {
             transform: scale(1.02);
         }
@@ -988,12 +1310,202 @@
         .light-theme .quota-ring .ring-bg {
             stroke: rgba(0, 0, 0, 0.1);
         }
+
+        /* Login Screen */
+        .login-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: var(--bg-dark);
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .login-screen.hidden {
+            display: none;
+        }
+
+        .login-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 24px;
+            padding: 40px 30px;
+            max-width: 320px;
+            width: 100%;
+            text-align: center;
+        }
+
+        .login-logo {
+            font-size: 48px;
+            margin-bottom: 16px;
+        }
+
+        .login-title {
+            font-size: 24px;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        .login-subtitle {
+            color: var(--text-muted);
+            font-size: 14px;
+            margin-bottom: 30px;
+        }
+
+        .pin-input {
+            width: 100%;
+            padding: 16px;
+            font-size: 24px;
+            text-align: center;
+            letter-spacing: 8px;
+            background: var(--bg-glass);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            color: var(--text-primary);
+            margin-bottom: 20px;
+            -webkit-text-security: disc;
+        }
+
+        .pin-input:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+        }
+
+        .login-btn {
+            width: 100%;
+            padding: 16px;
+            background: var(--accent-gradient);
+            border: none;
+            border-radius: 12px;
+            color: white;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .login-btn:hover {
+            transform: scale(1.02);
+        }
+
+        .login-error {
+            color: var(--error);
+            font-size: 14px;
+            margin-top: 16px;
+        }
+
+        /* Image Preview */
+        .image-preview-container {
+            position: fixed !important;
+            top: 60px;
+            left: 0;
+            width: 100vw;
+            height: calc(100vh - 60px);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: #111;
+            z-index: 250;
+            box-sizing: border-box;
+        }
+
+        .zoom-controls {
+            position: absolute;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 12px;
+            background: rgba(0, 0, 0, 0.7);
+            border-radius: 20px;
+            z-index: 10;
+        }
+
+        .zoom-btn {
+            width: 32px;
+            height: 32px;
+            border: none;
+            background: rgba(255, 255, 255, 0.15);
+            color: white;
+            font-size: 18px;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .zoom-btn:active {
+            background: rgba(255, 255, 255, 0.3);
+        }
+
+        .zoom-level {
+            color: white;
+            font-size: 13px;
+            font-weight: 600;
+            min-width: 50px;
+            text-align: center;
+        }
+
+        .image-wrapper {
+            flex: 1;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            width: 100% !important;
+            height: 100% !important;
+            overflow: auto !important;
+            touch-action: pinch-zoom pan-x pan-y;
+        }
+
+        .image-wrapper img {
+            max-width: none !important;
+            max-height: none !important;
+            width: auto !important;
+            height: auto !important;
+            object-fit: contain;
+            transition: transform 0.15s ease-out;
+            border-radius: 4px;
+        }
+
+        .zoom-hint {
+            position: absolute;
+            bottom: 12px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 11px;
+            padding: 4px 12px;
+            background: rgba(0, 0, 0, 0.5);
+            border-radius: 12px;
+        }
     </style>
 </head>
 
 <body>
     <div class="bg-effects">
         <div class="bg-gradient"></div>
+    </div>
+
+    <!-- Login Screen -->
+    <div class="login-screen hidden" id="loginScreen">
+        <div class="login-card">
+            <div class="login-logo">🔐</div>
+            <div class="login-title">Enter PIN</div>
+            <div class="login-subtitle">Authentication required to access</div>
+            <input type="tel" class="pin-input" id="pinInput" maxlength="6" placeholder="• • • •" autocomplete="off">
+            <button class="login-btn" onclick="submitPin()">Unlock</button>
+            <div class="login-error" id="loginError" style="display: none;"></div>
+        </div>
     </div>
 
     <!-- Header -->
@@ -1024,11 +1536,11 @@
             </div>
 
             <div class="quick-actions">
-                <button class="quick-chip" onclick="sendQuick('continue')">▶️ Continue</button>
-                <button class="quick-chip" onclick="sendQuick('yes')">✅ Yes</button>
-                <button class="quick-chip" onclick="sendQuick('no')">❌ No</button>
-                <button class="quick-chip" onclick="sendQuick('stop')">⏹️ Stop</button>
-                <button class="quick-chip" onclick="sendQuick('help')">❓ Help</button>
+                <button class="quick-chip" onclick="sendQuick('continue')">Continue</button>
+                <button class="quick-chip" onclick="sendQuick('yes')">Yes</button>
+                <button class="quick-chip" onclick="sendQuick('no')">No</button>
+                <button class="quick-chip" onclick="sendQuick('stop')">Stop</button>
+                <button class="quick-chip" onclick="sendQuick('help')">Help</button>
             </div>
 
             <div class="chat-input-area">
@@ -1043,15 +1555,65 @@
 
     <!-- Bottom Nav -->
     <nav class="bottom-nav">
+        <button class="nav-item" data-panel="files">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+            </svg>
+            <span>Files</span>
+        </button>
         <button class="nav-item active" data-panel="chat">
-            <span class="icon">💬</span>
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path
+                    d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z">
+                </path>
+            </svg>
             <span>Chat</span>
         </button>
         <button class="nav-item" data-panel="settings">
-            <span class="icon">⚙️</span>
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="3"></circle>
+                <path
+                    d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z">
+                </path>
+            </svg>
             <span>Settings</span>
         </button>
     </nav>
+
+    <!-- File Browser Panel -->
+    <div class="files-panel-overlay" id="filesOverlay" onclick="closeFilesPanel()"></div>
+    <div class="files-panel" id="filesPanel">
+        <div class="files-header">
+            <h3>Files</h3>
+            <button class="files-close" onclick="closeFilesPanel()">✕</button>
+        </div>
+        <div class="files-breadcrumb" id="filesBreadcrumb">Loading...</div>
+        <div class="files-list" id="filesList"></div>
+    </div>
+
+    <!-- File Viewer Modal -->
+    <div class="file-viewer" id="fileViewer">
+        <div class="file-viewer-header">
+            <span class="file-viewer-title" id="fileViewerTitle">filename.txt</span>
+            <div class="file-viewer-header-btns">
+                <button class="btn btn-edit" id="editBtn" onclick="startEditing()">✏️ Edit</button>
+                <button class="files-close" onclick="closeFileViewer()">✕</button>
+            </div>
+        </div>
+        <div class="file-viewer-content" id="viewerContent">
+            <pre><code id="fileViewerContent"></code></pre>
+        </div>
+        <div class="image-preview-container" id="imageContent" style="display: none;">
+            <img id="imagePreview" src="" alt="Preview">
+        </div>
+        <div class="file-viewer-content" id="editorContent" style="display: none; padding: 0;">
+            <textarea class="file-editor" id="fileEditor"></textarea>
+        </div>
+        <div class="file-viewer-actions" id="editorActions" style="display: none;">
+            <button type="button" class="btn btn-save" onclick="saveFile()">Save</button>
+            <button type="button" class="btn btn-cancel" onclick="cancelEditing()">Cancel</button>
+        </div>
+    </div>
 
     <!-- Settings Panel (hidden by default) -->
     <div id="settingsPanel"
@@ -1103,17 +1665,42 @@
                         </div>
                         <select id="themeSelect" class="setting-value" style="border: none; cursor: pointer;"
                             onchange="setTheme(this.value)">
-                            <option value="dark">🌙 Dark</option>
-                            <option value="light">☀️ Light</option>
+                            <option value="dark">Dark</option>
+                            <option value="light">Light</option>
                         </select>
+                    </div>
+
+                </div>
+            </div>
+
+            <div class="settings-section">
+                <div class="settings-title">View Mode</div>
+                <div class="card">
+                    <div class="setting-row">
+                        <div class="setting-label">
+                            <h4>Lite Mode</h4>
+                            <p>Chat-only lightweight view</p>
+                        </div>
+                        <a href="/minimal.html" class="btn btn-primary"
+                            style="padding: 8px 16px; font-size: 12px; text-decoration: none; width: max-content; flex: none;">Switch
+                            →</a>
                     </div>
                 </div>
             </div>
 
             <div class="settings-section">
                 <div class="settings-title" style="display: flex; align-items: center; justify-content: space-between;">
-                    <span>🚀 Model Quota</span>
-                    <button class="quota-refresh-btn" onclick="loadQuota()">🔄 Refresh</button>
+                    <span style="display: flex; align-items: center; gap: 8px;"><svg class="section-icon"
+                            viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M12 20V10"></path>
+                            <path d="M18 20V4"></path>
+                            <path d="M6 20v-4"></path>
+                        </svg> Model Quota</span>
+                    <button class="quota-refresh-btn" onclick="loadQuota()"><svg class="btn-icon" viewBox="0 0 24 24"
+                            fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="23 4 23 10 17 10"></polyline>
+                            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                        </svg> Refresh</button>
                 </div>
                 <div class="card">
                     <div id="quotaContainer">
@@ -1138,6 +1725,118 @@
             let chatMessages = [];
             const serverUrl = window.location.origin;
 
+            // Auth state
+            let authToken = localStorage.getItem('authToken');
+
+            // Helper for authenticated fetch
+            async function authFetch(url, options = {}) {
+                const headers = { ...(options.headers || {}) };
+                if (authToken) {
+                    headers['Authorization'] = `Bearer ${authToken}`;
+                }
+
+                const res = await fetch(url, { ...options, headers });
+
+                // If unauthorized, show login screen but don't throw for polling calls
+                if (res.status === 401) {
+                    try {
+                        const clonedRes = res.clone();
+                        const data = await clonedRes.json();
+                        if (data.needsAuth) {
+                            authToken = null;
+                            localStorage.removeItem('authToken');
+                            showLoginScreen();
+                        }
+                    } catch (e) {
+                        // Ignore JSON parse errors
+                    }
+                }
+
+                return res;
+            }
+
+            // ====================================================================
+            // Authentication
+            // ====================================================================
+            async function checkAuth() {
+                try {
+                    const res = await fetch(`${serverUrl}/api/auth/status`);
+                    const data = await res.json();
+
+                    if (!data.authEnabled) {
+                        // No auth required, hide login screen
+                        hideLoginScreen();
+                        return true;
+                    }
+
+                    // Auth is enabled, check if we have a valid token
+                    if (authToken) {
+                        const testRes = await authFetch(`${serverUrl}/api/status`);
+                        if (testRes.ok) {
+                            hideLoginScreen();
+                            return true;
+                        }
+                    }
+
+                    // Need to login
+                    showLoginScreen();
+                    return false;
+                } catch (e) {
+                    console.error('Auth check failed:', e);
+                    return false;
+                }
+            }
+
+            function showLoginScreen() {
+                document.getElementById('loginScreen').classList.remove('hidden');
+            }
+
+            function hideLoginScreen() {
+                document.getElementById('loginScreen').classList.add('hidden');
+            }
+
+            async function submitPin() {
+                const pin = document.getElementById('pinInput').value;
+                const errorEl = document.getElementById('loginError');
+
+                if (!pin || pin.length < 4) {
+                    errorEl.textContent = 'Please enter your PIN';
+                    errorEl.style.display = 'block';
+                    return;
+                }
+
+                try {
+                    const res = await fetch(`${serverUrl}/api/auth/login`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ pin })
+                    });
+
+                    const data = await res.json();
+
+                    if (data.success) {
+                        authToken = data.token;
+                        localStorage.setItem('authToken', authToken);
+                        hideLoginScreen();
+                        errorEl.style.display = 'none';
+                        document.getElementById('pinInput').value = '';
+                    } else {
+                        errorEl.textContent = data.error || 'Invalid PIN';
+                        errorEl.style.display = 'block';
+                    }
+                } catch (e) {
+                    errorEl.textContent = 'Connection error';
+                    errorEl.style.display = 'block';
+                }
+            }
+
+            // Submit PIN on Enter key
+            document.addEventListener('DOMContentLoaded', () => {
+                document.getElementById('pinInput').addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') submitPin();
+                });
+            });
+
             // ====================================================================
             // WebSocket
             // ====================================================================
@@ -1147,14 +1846,16 @@
 
                 ws.onopen = () => {
                     updateStatus(true);
-                    document.getElementById('wsStatus').textContent = 'Connected';
-                    document.getElementById('wsStatus').style.color = 'var(--success)';
+                    const wsEl = document.getElementById('wsStatus');
+                    wsEl.innerHTML = '<svg class="status-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Connected';
+                    wsEl.style.color = 'var(--success)';
                 };
 
                 ws.onclose = () => {
                     updateStatus(false);
-                    document.getElementById('wsStatus').textContent = 'Disconnected';
-                    document.getElementById('wsStatus').style.color = 'var(--error)';
+                    const wsEl = document.getElementById('wsStatus');
+                    wsEl.innerHTML = '<svg class="status-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg> Disconnected';
+                    wsEl.style.color = 'var(--error)';
                     setTimeout(connectWebSocket, 3000);
                 };
 
@@ -1171,6 +1872,52 @@
                     data.data.messages.forEach(msg => addChatMessage(msg, false));
                 } else if (data.event === 'message' || data.event === 'mobile_command') {
                     addChatMessage(data.data, true);
+                } else if (data.event === 'file_changed') {
+                    // Auto-refresh file list when files change
+                    handleFileChanged(data.data);
+                } else if (data.event === 'workspace_changed') {
+                    // IDE workspace changed - update file browser
+                    handleWorkspaceChanged(data.data);
+                }
+            }
+
+            function handleWorkspaceChanged(data) {
+                console.log('📂 Workspace changed:', data.path);
+
+                // Update the workspace path display if we have one
+                const workspaceLabel = document.getElementById('workspaceLabel');
+                if (workspaceLabel) {
+                    workspaceLabel.textContent = data.projectName || 'Files';
+                }
+
+                // If files panel is open, reload from new workspace root
+                const filesPanel = document.getElementById('filesPanel');
+                if (filesPanel.classList.contains('open')) {
+                    // Reset to workspace root
+                    currentFilePath = '';
+                    loadFiles('');
+                    showToast(`📂 Switched to: ${data.projectName}`, 'status');
+                }
+            }
+
+            function handleFileChanged(data) {
+                // Only refresh if files panel is open
+                const filesPanel = document.getElementById('filesPanel');
+                if (!filesPanel.classList.contains('open')) return;
+
+                console.log('📁 File changed:', data.filename);
+
+                // Reload current folder
+                if (currentFilePath) {
+                    loadFiles(currentFilePath);
+                }
+
+                // If viewing a file that changed, show a notification
+                if (currentViewingFile && data.filename) {
+                    const viewingFilename = currentViewingFile.split(/[/\\]/).pop();
+                    if (viewingFilename === data.filename) {
+                        showToast('File changed - tap to reload', 'status');
+                    }
                 }
             }
 
@@ -1184,7 +1931,7 @@
             // View Switching (simplified - Chat is always visible)
             // ====================================================================
 
-            // Bottom Nav - just Chat and Settings
+            // Bottom Nav - Chat, Files, and Settings
             document.querySelectorAll('.nav-item').forEach(btn => {
                 btn.addEventListener('click', () => {
                     document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
@@ -1193,15 +1940,21 @@
                     const panel = btn.dataset.panel;
                     if (panel === 'settings') {
                         document.getElementById('settingsPanel').style.display = 'block';
+                        closeFilesPanel();
                         loadSettings();
+                    } else if (panel === 'files') {
+                        document.getElementById('settingsPanel').style.display = 'none';
+                        openFilesPanel();
                     } else if (panel === 'chat') {
                         document.getElementById('settingsPanel').style.display = 'none';
+                        closeFilesPanel();
                     }
                 });
             });
 
             function closePanel() {
                 document.getElementById('settingsPanel').style.display = 'none';
+                closeFilesPanel();
                 document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
                 document.querySelector('.nav-item[data-panel="chat"]').classList.add('active');
             }
@@ -1217,6 +1970,7 @@
 
             function renderChat(animate = true) {
                 const container = document.getElementById('chatMessages');
+                if (!container) return; // Guard against null
 
                 if (chatMessages.length === 0) {
                     container.innerHTML = `
@@ -1253,7 +2007,7 @@
                 if (!text) return;
 
                 try {
-                    const res = await fetch(`${serverUrl}/api/cdp/inject`, {
+                    const res = await authFetch(`${serverUrl}/api/cdp/inject`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ text, submit: true })
@@ -1308,13 +2062,20 @@
             // ====================================================================
             async function loadSettings() {
                 try {
-                    const res = await fetch(`${serverUrl}/api/cdp/status`);
+                    const res = await authFetch(`${serverUrl}/api/cdp/status`);
                     const data = await res.json();
                     const el = document.getElementById('cdpStatus');
-                    el.textContent = data.available ? '✅ Active' : '❌ Offline';
-                    el.style.color = data.available ? 'var(--success)' : 'var(--error)';
+                    if (data.available) {
+                        el.innerHTML = '<svg class="status-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Active';
+                        el.style.color = 'var(--success)';
+                    } else {
+                        el.innerHTML = '<svg class="status-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg> Offline';
+                        el.style.color = 'var(--error)';
+                    }
                 } catch {
-                    document.getElementById('cdpStatus').textContent = '❌ Error';
+                    const el = document.getElementById('cdpStatus');
+                    el.innerHTML = '<svg class="status-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg> Error';
+                    el.style.color = 'var(--error)';
                 }
                 // Also load quota when settings panel opens
                 loadQuota();
@@ -1339,7 +2100,7 @@
                 `;
 
                 try {
-                    const res = await fetch(`${serverUrl}/api/quota`);
+                    const res = await authFetch(`${serverUrl}/api/quota`);
                     const data = await res.json();
                     quotaData = data;
                     renderQuota(data);
@@ -1431,7 +2192,7 @@
             async function clearAllData() {
                 chatMessages = [];
                 renderChat();
-                await fetch(`${serverUrl}/api/messages/clear`, { method: 'POST' });
+                await authFetch(`${serverUrl}/api/messages/clear`, { method: 'POST' });
                 showToast('Data cleared', 'success');
             }
 
@@ -1482,11 +2243,14 @@
             let lastCascadeHash = null;
             let cssLoaded = false;
 
+
+
+
             async function fetchLiveChat() {
                 if (!chatPollingActive) return;
 
                 try {
-                    const res = await fetch(`${serverUrl}/api/chat/snapshot`);
+                    const res = await authFetch(`${serverUrl}/api/chat/snapshot`);
                     const data = await res.json();
 
                     if (data.html) {
@@ -1495,30 +2259,75 @@
                         if (hash !== lastCascadeHash) {
                             lastCascadeHash = hash;
 
-                            // Inject CSS (only once or if changed)
-                            if (data.css && !cssLoaded) {
+                            // Inject CSS (always update to apply fixes)
+                            if (data.css) {
                                 const styleEl = document.getElementById('cascadeStyles');
                                 styleEl.textContent = `
                                 ${data.css}
-                                /* Minimal container adaptation only */
+                                /* Fixes for empty space and scrolling */
                                 #cascade-container {
                                     background: transparent !important;
                                     width: 100% !important;
                                     height: 100% !important;
                                 }
+                                
+                                /* Hide virtualized scroll placeholders */
+                                #cascade-container [style*="min-height"] {
+                                    min-height: 0 !important;
+                                }
+                                #cascade-container .bg-gray-500\\/10:not(:has(*)),
+                                #cascade-container [class*="bg-gray-500"]:not(:has(*)) {
+                                    display: none !important;
+                                }
+                                
+                                /* Force content height */
+                                #cascade-container [style*="height"]:not(img):not(svg):not(video) {
+                                    height: auto !important;
+                                    max-height: none !important;
+                                }
+                                
+                                /* 1. Define the missing variable so ALL text using it becomes visible (Light Gray) */
+                                #cascade-container {
+                                    --ide-text-color: #e4e4e7 !important;
+                                }
+                                
+                                /* 2. Target ONLY inline code elements for the pink styling */
+                                #cascade-container code:not(pre code) {
+                                    background: rgba(139, 92, 246, 0.25) !important;
+                                    color: #f0abfc !important;
+                                    padding: 2px 6px !important;
+                                    border-radius: 4px !important;
+                                    font-family: 'Fira Code', 'Consolas', 'Monaco', monospace !important;
+                                    font-size: 0.875em !important;
+                                    display: inline-block !important; /* Changed to inline-block for better padding */
+                                    visibility: visible !important;
+                                    opacity: 1 !important;
+                                    -webkit-text-fill-color: #f0abfc !important;
+                                    border: 1px solid rgba(240, 171, 252, 0.1) !important;
+                                }
                             `;
-                                cssLoaded = true;
                             }
 
                             const container = document.getElementById('cascade-container');
-                            const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 50;
+                            const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 100;
+
+                            // Merge with cached content if caching is enabled
+                            let finalHtml = data.html;
+
 
                             // Inject the raw cascade HTML
-                            container.innerHTML = data.html;
+                            container.innerHTML = finalHtml;
 
                             // Scroll to bottom if was at bottom
                             if (isAtBottom) {
-                                container.scrollTop = container.scrollHeight;
+                                // Use scrollIntoView on the last element for better reliability
+                                setTimeout(() => {
+                                    if (container.lastElementChild) {
+                                        container.lastElementChild.scrollIntoView({ behavior: 'smooth', block: 'end' });
+                                    } else {
+                                        container.scrollTop = container.scrollHeight;
+                                    }
+                                }, 100);
                             }
                         }
                     } else if (data.error) {
@@ -1568,11 +2377,458 @@
 
 
             // ====================================================================
+            // File Browser
+            // ====================================================================
+            let currentFilePath = null;
+            let previousActivePanel = 'chat'; // Track what was active before Files opened
+
+            function openFilesPanel() {
+                // Remember what panel was active before opening files
+                const activeBtn = document.querySelector('.nav-item.active');
+                if (activeBtn && activeBtn.dataset.panel !== 'files') {
+                    previousActivePanel = activeBtn.dataset.panel;
+                }
+
+                document.getElementById('filesOverlay').classList.add('open');
+                document.getElementById('filesPanel').classList.add('open');
+                document.body.classList.add('no-scroll'); // Prevent background scroll
+                if (!currentFilePath) {
+                    loadFiles();
+                }
+            }
+
+            function closeFilesPanel() {
+                document.getElementById('filesOverlay').classList.remove('open');
+                document.getElementById('filesPanel').classList.remove('open');
+                document.body.classList.remove('no-scroll'); // Restore background scroll
+
+                // Restore previous active nav button (only if Files was active)
+                const filesBtn = document.querySelector('.nav-item[data-panel="files"]');
+                if (filesBtn && filesBtn.classList.contains('active')) {
+                    document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+                    document.querySelector(`.nav-item[data-panel="${previousActivePanel}"]`).classList.add('active');
+                }
+
+                // Stop file watching to save resources
+                authFetch(`${serverUrl}/api/files/unwatch`, { method: 'POST' }).catch(() => { });
+            }
+
+            async function loadFiles(path = null) {
+                try {
+                    const url = path ? `${serverUrl}/api/files?path=${encodeURIComponent(path)}` : `${serverUrl}/api/files`;
+                    const res = await authFetch(url);
+                    const data = await res.json();
+
+                    if (data.error) {
+                        document.getElementById('filesList').innerHTML = `<div class="quota-error">${data.error}</div>`;
+                        return;
+                    }
+
+                    currentFilePath = data.path;
+
+                    // Show breadcrumb (shortened)
+                    const breadcrumb = data.path.length > 40 ? '...' + data.path.slice(-37) : data.path;
+                    document.getElementById('filesBreadcrumb').textContent = breadcrumb;
+
+                    // Render file list
+                    let html = '';
+
+                    // Add "go up" option if not at root
+                    if (data.parent && data.parent !== data.path) {
+                        html += `<div class="file-item" onclick="loadFiles('${escapeQuotes(data.parent)}')">
+                            <span class="file-icon">⬆️</span>
+                            <span class="file-name">..</span>
+                        </div>`;
+                    }
+
+                    html += data.items.map(item => {
+                        const icon = getFileIcon(item);
+                        const size = item.isDirectory ? '' : formatSize(item.size);
+                        const clickAction = item.isDirectory
+                            ? `loadFiles('${escapeQuotes(item.path)}')`
+                            : `viewFile('${escapeQuotes(item.path)}', '${item.extension || ''}')`;
+                        return `<div class="file-item" onclick="${clickAction}">
+                            <span class="file-icon">${icon}</span>
+                            <span class="file-name">${escapeHtml(item.name)}</span>
+                            <span class="file-size">${size}</span>
+                        </div>`;
+                    }).join('');
+
+                    document.getElementById('filesList').innerHTML = html || '<div class="quota-error">Empty folder</div>';
+                } catch (e) {
+                    document.getElementById('filesList').innerHTML = `<div class="quota-error">Error: ${e.message}</div>`;
+                }
+            }
+
+            function getFileIcon(item) {
+                if (item.isDirectory) return '📁';
+                const ext = (item.extension || '').toLowerCase();
+                const icons = {
+                    '.js': '📜', '.mjs': '📜', '.ts': '📘',
+                    '.json': '📋', '.md': '📝', '.txt': '📄',
+                    '.html': '🌐', '.css': '🎨',
+                    '.py': '🐍', '.sh': '⚙️', '.bat': '⚙️',
+                    '.png': '🖼️', '.jpg': '🖼️', '.jpeg': '🖼️', '.gif': '🖼️',
+                    '.yml': '⚙️', '.yaml': '⚙️'
+                };
+                return icons[ext] || '📄';
+            }
+
+            function formatSize(bytes) {
+                if (!bytes) return '';
+                if (bytes < 1024) return bytes + ' B';
+                if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+                return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+            }
+
+            function escapeQuotes(str) {
+                if (!str) return '';
+                return str.replace(/'/g, "\\'").replace(/\\/g, "\\\\");
+            }
+
+            // ====================================================================
+            // File Viewer
+            // ====================================================================
+            let currentViewingFile = null; // Track currently open file for editing
+
+            // Map extensions to Highlight.js language names
+            function getLanguage(ext) {
+                const langMap = {
+                    '.js': 'javascript', '.mjs': 'javascript', '.ts': 'typescript',
+                    '.json': 'json', '.html': 'html', '.css': 'css',
+                    '.py': 'python', '.sh': 'bash', '.bat': 'dos',
+                    '.md': 'markdown', '.yml': 'yaml', '.yaml': 'yaml',
+                    '.xml': 'xml', '.sql': 'sql',
+                    '.txt': 'plaintext', '.log': 'plaintext', '.env': 'plaintext'
+                };
+                return langMap[ext] || 'plaintext';
+            }
+            // Image extensions
+            const imageExtensions = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.ico', '.bmp'];
+
+            function isImageFile(ext) {
+                return imageExtensions.includes((ext || '').toLowerCase());
+            }
+
+            async function viewFile(path, ext) {
+                // Check if it's an image file
+                if (isImageFile(ext)) {
+                    viewImageFile(path, ext);
+                    return;
+                }
+
+                // Text file handling
+                try {
+                    const res = await authFetch(`${serverUrl}/api/files/content?path=${encodeURIComponent(path)}`);
+                    const data = await res.json();
+
+                    if (data.error) {
+                        showToast(data.error, 'error');
+                        return;
+                    }
+
+                    // Store current file path for editing
+                    currentViewingFile = path;
+
+                    const lang = getLanguage(data.extension);
+                    const codeEl = document.getElementById('fileViewerContent');
+
+                    // Reset the element for re-highlighting
+                    codeEl.removeAttribute('data-highlighted');
+                    codeEl.innerHTML = ''; // Clear previous highlighted HTML
+
+                    document.getElementById('fileViewerTitle').textContent = data.name;
+                    codeEl.textContent = data.content;
+                    codeEl.className = `language-${lang}`;
+
+                    // Apply syntax highlighting
+                    if (typeof hljs !== 'undefined' && lang !== 'plaintext') {
+                        hljs.highlightElement(codeEl);
+                    }
+
+                    // Show text viewer, hide image viewer
+                    document.getElementById('viewerContent').style.display = 'block';
+                    document.getElementById('imageContent').style.display = 'none';
+                    document.getElementById('editBtn').style.display = 'inline-flex';
+
+                    document.getElementById('fileViewer').classList.add('open');
+                } catch (e) {
+                    showToast('Failed to load file', 'error');
+                }
+            }
+
+            async function viewImageFile(path, ext) {
+                const filename = path.split(/[/\\]/).pop();
+                document.getElementById('fileViewerTitle').textContent = filename;
+
+                // Show image viewer, hide text viewer
+                document.getElementById('viewerContent').style.display = 'none';
+                document.getElementById('imageContent').style.display = 'flex';
+                document.getElementById('editBtn').style.display = 'none'; // Can't edit images
+                document.getElementById('editorContent').style.display = 'none';
+                document.getElementById('editorActions').style.display = 'none';
+
+                currentViewingFile = null; // Images not editable
+
+                document.getElementById('fileViewer').classList.add('open');
+
+                // Remove any existing overlay first
+                const existingOverlay = document.getElementById('imageOverlay');
+                if (existingOverlay) existingOverlay.remove();
+
+                // Create loading overlay
+                const overlay = document.createElement('div');
+                overlay.id = 'imageOverlay';
+                overlay.style.cssText = `
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        right: 0 !important;
+        bottom: 0 !important;
+        width: 100vw !important;
+        height: 100vh !important;
+        background: #000 !important;
+        z-index: 99999 !important;
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: center !important;
+        justify-content: center !important;
+    `;
+
+                // Show loading spinner first
+                overlay.innerHTML = `
+        <div style="position: absolute; top: 10px; left: 10px; right: 10px; display: flex; justify-content: space-between; align-items: center; z-index: 10;">
+            <span style="color: white; font-size: 14px; font-weight: 600;">${filename}</span>
+            <button onclick="closeImageOverlay()" style="width: 40px; height: 40px; border: none; background: rgba(255,255,255,0.2); color: white; font-size: 20px; border-radius: 50%; cursor: pointer;">✕</button>
+        </div>
+        <div id="imageLoader" style="display: flex; flex-direction: column; align-items: center; gap: 16px;">
+            <div style="width: 48px; height: 48px; border: 3px solid rgba(255,255,255,0.1); border-top-color: #8b5cf6; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+            <span style="color: rgba(255,255,255,0.7); font-size: 14px;">Loading image...</span>
+        </div>
+        <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
+    `;
+                document.body.appendChild(overlay);
+
+                // Fetch image with auth token
+                try {
+                    const imgUrl = `${serverUrl}/api/files/raw?path=${encodeURIComponent(path)}`;
+                    const res = await authFetch(imgUrl);
+
+                    if (!res.ok) {
+                        showToast('Failed to load image', 'error');
+                        closeImageOverlay();
+                        return;
+                    }
+
+                    const blob = await res.blob();
+                    const objectUrl = URL.createObjectURL(blob);
+
+                    // Replace loading with actual image content
+                    overlay.innerHTML = `
+            <div style="position: absolute; top: 10px; left: 10px; right: 10px; display: flex; justify-content: space-between; align-items: center; z-index: 10;">
+                <span style="color: white; font-size: 14px; font-weight: 600;">${filename}</span>
+                <button onclick="closeImageOverlay()" style="width: 40px; height: 40px; border: none; background: rgba(255,255,255,0.2); color: white; font-size: 20px; border-radius: 50%; cursor: pointer;">✕</button>
+            </div>
+            <div style="position: absolute; top: 60px; display: flex; gap: 8px; padding: 6px 12px; background: rgba(0,0,0,0.7); border-radius: 20px; z-index: 10;">
+                <button onclick="zoomImage(-1)" style="width: 32px; height: 32px; border: none; background: rgba(255,255,255,0.15); color: white; font-size: 18px; border-radius: 50%; cursor: pointer;">−</button>
+                <span id="zoomLevel" style="color: white; font-size: 13px; font-weight: 600; min-width: 50px; text-align: center; line-height: 32px;">100%</span>
+                <button onclick="zoomImage(1)" style="width: 32px; height: 32px; border: none; background: rgba(255,255,255,0.15); color: white; font-size: 18px; border-radius: 50%; cursor: pointer;">+</button>
+                <button onclick="resetZoom()" style="width: 32px; height: 32px; border: none; background: rgba(255,255,255,0.15); color: white; font-size: 18px; border-radius: 50%; cursor: pointer;">↺</button>
+            </div>
+            <div id="imageWrapper" style="flex: 1; display: flex; align-items: center; justify-content: center; width: 100%; height: calc(100% - 120px); padding: 20px; overflow: auto;">
+                <img src="${objectUrl}" alt="Image preview" id="zoomableImage" style="max-width: 100%; max-height: 100%; object-fit: contain; transition: transform 0.15s ease-out;">
+            </div>
+            <div style="position: absolute; bottom: 12px; color: rgba(255,255,255,0.5); font-size: 11px; padding: 4px 12px; background: rgba(0,0,0,0.5); border-radius: 12px;">Pinch to zoom • Double-tap to fit</div>
+        `;
+
+                    initImageZoom();
+                } catch (e) {
+                    showToast('Error loading image', 'error');
+                    closeImageOverlay();
+                }
+            }
+
+            function closeImageOverlay() {
+                const overlay = document.getElementById('imageOverlay');
+                if (overlay) overlay.remove();
+                closeFileViewer();
+            }
+
+            // ====================================================================
+            // Image Zoom Functionality
+            // ====================================================================
+            let currentZoom = 1;
+            let imageTranslateX = 0;
+            let imageTranslateY = 0;
+
+            function initImageZoom() {
+                currentZoom = 1;
+                imageTranslateX = 0;
+                imageTranslateY = 0;
+
+                const wrapper = document.getElementById('imageWrapper');
+                const img = document.getElementById('zoomableImage');
+                if (!wrapper || !img) return;
+
+                let lastTouchEnd = 0;
+                let initialDistance = 0;
+                let initialZoom = 1;
+
+                // Double-tap to toggle fit/actual size
+                wrapper.addEventListener('touchend', (e) => {
+                    const now = Date.now();
+                    if (now - lastTouchEnd < 300 && e.changedTouches.length === 1) {
+                        e.preventDefault();
+                        if (currentZoom === 1) {
+                            // Fit to width
+                            const containerWidth = wrapper.clientWidth;
+                            const imgWidth = img.naturalWidth;
+                            currentZoom = Math.min(containerWidth / imgWidth, 3);
+                        } else {
+                            resetZoom();
+                        }
+                        updateZoom();
+                    }
+                    lastTouchEnd = now;
+                });
+
+                // Pinch to zoom
+                wrapper.addEventListener('touchstart', (e) => {
+                    if (e.touches.length === 2) {
+                        initialDistance = getDistance(e.touches[0], e.touches[1]);
+                        initialZoom = currentZoom;
+                    }
+                });
+
+                wrapper.addEventListener('touchmove', (e) => {
+                    if (e.touches.length === 2) {
+                        e.preventDefault();
+                        const distance = getDistance(e.touches[0], e.touches[1]);
+                        const scale = distance / initialDistance;
+                        currentZoom = Math.min(Math.max(initialZoom * scale, 0.5), 5);
+                        updateZoom();
+                    }
+                }, { passive: false });
+
+                // Mouse wheel zoom for desktop
+                wrapper.addEventListener('wheel', (e) => {
+                    e.preventDefault();
+                    const delta = e.deltaY > 0 ? -0.2 : 0.2;
+                    currentZoom = Math.min(Math.max(currentZoom + delta, 0.5), 5);
+                    updateZoom();
+                }, { passive: false });
+            }
+
+            function getDistance(touch1, touch2) {
+                const dx = touch1.clientX - touch2.clientX;
+                const dy = touch1.clientY - touch2.clientY;
+                return Math.sqrt(dx * dx + dy * dy);
+            }
+
+            function zoomImage(direction) {
+                currentZoom = Math.min(Math.max(currentZoom + direction * 0.25, 0.5), 5);
+                updateZoom();
+            }
+
+            function resetZoom() {
+                currentZoom = 1;
+                imageTranslateX = 0;
+                imageTranslateY = 0;
+                updateZoom();
+            }
+
+            function updateZoom() {
+                const img = document.getElementById('zoomableImage');
+                const levelEl = document.getElementById('zoomLevel');
+                if (img) {
+                    img.style.transform = `scale(${currentZoom}) translate(${imageTranslateX}px, ${imageTranslateY}px)`;
+                }
+                if (levelEl) {
+                    levelEl.textContent = Math.round(currentZoom * 100) + '%';
+                }
+            }
+
+            function closeFileViewer() {
+                document.getElementById('fileViewer').classList.remove('open');
+                // Reset to view mode when closing
+                cancelEditing();
+                // Clear image src to free memory
+                document.getElementById('imagePreview').src = '';
+            }
+
+            // ====================================================================
+            // File Editing
+            // ====================================================================
+            let isEditing = false;
+
+            function startEditing() {
+                if (!currentViewingFile) return;
+
+                isEditing = true;
+                const content = document.getElementById('fileViewerContent').textContent;
+                document.getElementById('fileEditor').value = content;
+
+                // Show editor, hide viewer
+                document.getElementById('viewerContent').style.display = 'none';
+                document.getElementById('editorContent').style.display = 'block';
+                document.getElementById('editorActions').style.display = 'flex';
+                document.getElementById('editBtn').style.display = 'none';
+            }
+
+            function cancelEditing() {
+                isEditing = false;
+                document.getElementById('viewerContent').style.display = 'block';
+                document.getElementById('editorContent').style.display = 'none';
+                document.getElementById('editorActions').style.display = 'none';
+                document.getElementById('editBtn').style.display = 'inline-flex';
+            }
+
+            async function saveFile() {
+                if (!currentViewingFile) return;
+
+                const content = document.getElementById('fileEditor').value;
+
+                try {
+                    const res = await authFetch(`${serverUrl}/api/files/save`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ path: currentViewingFile, content })
+                    });
+                    const data = await res.json();
+
+                    if (data.error) {
+                        showToast(data.error, 'error');
+                        return;
+                    }
+
+                    showToast('File saved!', 'success');
+
+                    // Update the viewer with new content
+                    document.getElementById('fileViewerContent').textContent = content;
+                    cancelEditing();
+
+                    // Re-apply syntax highlighting
+                    const codeEl = document.getElementById('fileViewerContent');
+                    codeEl.removeAttribute('data-highlighted');
+                    if (typeof hljs !== 'undefined') {
+                        hljs.highlightElement(codeEl);
+                    }
+                } catch (e) {
+                    showToast('Save failed', 'error');
+                }
+            }
+
+            // ====================================================================
             // Init
             // ====================================================================
-            connectWebSocket();
-            loadTheme();
-            startChatPolling(); // Start chat polling immediately
+            async function init() {
+                loadTheme();
+                await checkAuth();
+                connectWebSocket();
+                startChatPolling();
+            }
+
+            init();
         </script>
 </body>
 

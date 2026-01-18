@@ -168,7 +168,8 @@ async function main() {
             cwd: __dirname,
             stdio: 'ignore',
             detached: true,
-            windowsHide: true
+            windowsHide: true,
+            env: { ...process.env } // Pass all environment variables including MOBILE_PIN
         });
         httpServer.unref();
 

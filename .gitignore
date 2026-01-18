@@ -6,6 +6,7 @@ extra/
 
 # User data
 data/
+uploads/
 
 # OS files
 .DS_Store

@@ -3,6 +3,19 @@
   "version": "1.0.0",
   "type": "module",
   "description": "Mobile dashboard for Antigravity IDE - live chat view and remote control",
+  "author": "Almoksha",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Almoksha/AntigravityMobile.git"
+  },
+  "keywords": [
+    "antigravity",
+    "mobile",
+    "dashboard",
+    "vscode",
+    "ide"
+  ],
   "main": "http-server.mjs",
   "scripts": {
     "start": "node http-server.mjs",
@@ -10,6 +23,7 @@
   },
   "dependencies": {
     "express": "^4.18.2",
+    "multer": "^1.4.5-lts.1",
     "sql.js": "^1.13.0",
     "ws": "^8.16.0"
   }

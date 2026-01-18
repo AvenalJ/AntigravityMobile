@@ -71,5 +71,25 @@ if not exist "node_modules\" (
 
 echo Starting server...
 echo.
+
+:: Ask about PIN authentication
+echo ==========================================
+echo   Security Setup (Optional)
+echo ==========================================
+echo.
+choice /C YN /M "Enable PIN authentication"
+if errorlevel 2 goto :nopin
+if errorlevel 1 goto :setpin
+
+:setpin
+set /p MOBILE_PIN="Enter a 4-6 digit PIN: "
+echo.
+goto :startserver
+
+:nopin
+echo Continuing without authentication...
+echo.
+
+:startserver
 node launcher.mjs
 pause
