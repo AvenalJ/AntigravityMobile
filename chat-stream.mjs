@@ -112,7 +112,7 @@ async function connectCDP(wsUrl) {
  */
 async function findCascadeContext(cdp) {
     const SCRIPT = `(() => {
-        const cascade = document.getElementById('cascade');
+        const cascade = document.getElementById('cascade') || document.getElementById('conversation');
         if (!cascade) return { found: false };
         return { 
             found: true,
@@ -160,7 +160,7 @@ async function findCascadeContext(cdp) {
  */
 async function captureChat(cdp, contextId) {
     const SCRIPT = `(() => {
-        const cascade = document.getElementById('cascade');
+        const cascade = document.getElementById('cascade') || document.getElementById('conversation');
         if (!cascade) return { error: 'cascade not found' };
         
         // --- PREPARE CLONE ---
@@ -298,7 +298,7 @@ async function captureChat(cdp, contextId) {
         });
 
         // --- MINIMAL CLEANUP ---
-        
+
         // Find the contenteditable input and remove its parent container
         const contentEditable = clone.querySelector('[contenteditable="true"]');
         if (contentEditable) {
@@ -397,9 +397,18 @@ async function captureChat(cdp, contextId) {
         }
         variables += '}';
         
+        // Final aggressive scrubbing of inline heights and overflows directly from the HTML string
+        let finalHtml = clone.outerHTML;
+        finalHtml = finalHtml.replace(/touch-action:\\s*none;?/gi, '');
+        
+        // Strip the touch constraints from the exported stylesheet CSS
+        let finalCss = variables + css;
+        finalCss = finalCss.replace(/touch-action:\\s*none;?/gi, '');
+        finalCss = finalCss.replace(/overscroll-behavior:\\s*none;?/gi, '');
+        
         return {
-            html: clone.outerHTML,
-            css: variables + css,
+            html: finalHtml,
+            css: finalCss,
             bodyBg: computed.backgroundColor,
             bodyColor: computed.color
         };

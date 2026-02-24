@@ -1,0 +1,170 @@
+Connecting to find editor target...
+Target found: AntigravityMobile - Antigravity - Walkthrough
+[
+  {
+    "tag": "DIV",
+    "id": "",
+    "cls": ".file-icons-enabled.monaco-enable-motion.monaco-workbench.linux.chromium.nopanel.maximized.vs-dark.vscode-theme-defaults-themes-dark_modern-json",
+    "text": "File Edit Selection View Go Run Terminal Help Anti",
+    "width": 1600,
+    "height": 861.9921875,
+    "children": [
+      {
+        "tag": "DIV",
+        "id": "",
+        "cls": ".monaco-grid-view",
+        "text": "File Edit Selection View Go Run Terminal Help Anti",
+        "width": 1600,
+        "height": 861.9921875,
+        "children": [
+          {
+            "tag": "DIV",
+            "id": "",
+            "cls": ".monaco-grid-branch-node",
+            "text": "File Edit Selection View Go Run Terminal Help Anti",
+            "width": 1600,
+            "height": 861.9921875,
+            "children": [
+              {
+                "tag": "DIV",
+                "id": "",
+                "cls": ".monaco-split-view2.vertical",
+                "text": "File Edit Selection View Go Run Terminal Help Anti",
+                "width": 1600,
+                "height": 861.9921875,
+                "children": [
+                  {
+                    "tag": "DIV",
+                    "id": "",
+                    "cls": ".sash-container",
+                    "text": "",
+                    "width": 1600,
+                    "height": 861.9921875,
+                    "children": []
+                  },
+                  {
+                    "tag": "DIV",
+                    "id": "",
+                    "cls": ".monaco-scrollable-element.",
+                    "text": "File Edit Selection View Go Run Terminal Help Anti",
+                    "width": 1600,
+                    "height": 861.9921875,
+                    "children": [
+                      {
+                        "tag": "DIV",
+                        "id": "",
+                        "cls": ".split-view-container",
+                        "text": "File Edit Selection View Go Run Terminal Help Anti",
+                        "width": 1600,
+                        "height": 861.9921875,
+                        "children": [
+                          {
+                            "tag": "DIV",
+                            "id": "",
+                            "cls": ".split-view-view.visible",
+                            "text": "1 Explorer AntigravityMobile data node_modules pub",
+                            "width": 1600,
+                            "height": 805,
+                            "children": null
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "DIV",
+        "id": "",
+        "cls": ".antigravity-agent-side-panel",
+        "text": "Analyzing Project Frontend  I have successfully an",
+        "width": 380,
+        "height": 805,
+        "children": [
+          {
+            "tag": "DIV",
+            "id": "",
+            "cls": ".w-full.h-full.flex.flex-col.box-border",
+            "text": "Analyzing Project Frontend  I have successfully an",
+            "width": 380,
+            "height": 805,
+            "children": [
+              {
+                "tag": "DIV",
+                "id": "#conversation",
+                "cls": ".flex.w-full.grow.flex-col.overflow-y-hidden.overflow-x-clip.pr-px",
+                "text": "I have successfully analyzed the Antigravity Mobil",
+                "width": 380,
+                "height": 774.9739379882812,
+                "children": [
+                  {
+                    "tag": "DIV",
+                    "id": "",
+                    "cls": ".flex.w-full.grow.flex-col.overflow-hidden",
+                    "text": "I have successfully analyzed the Antigravity Mobil",
+                    "width": 379.0104064941406,
+                    "height": 662.7603759765625,
+                    "children": [
+                      {
+                        "tag": "DIV",
+                        "id": "",
+                        "cls": ".h-full.overflow-y-auto.min-h-0.w-full.relative.flex.w-full.grow.flex-col.overflow-y-auto",
+                        "text": "I have successfully analyzed the Antigravity Mobil",
+                        "width": 379.0104064941406,
+                        "height": 662.7603759765625,
+                        "children": [
+                          {
+                            "tag": "DIV",
+                            "id": "",
+                            "cls": ".mx-auto.w-full",
+                            "text": "I have successfully analyzed the Antigravity Mobil",
+                            "width": 369.0104064941406,
+                            "height": 2940.18212890625,
+                            "children": null
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "tag": "DIV",
+                    "id": "",
+                    "cls": ".relative.flex.flex-col.gap-8.text-ide-message-block-bot-color.px-2",
+                    "text": "Review Changes  Ask anything, @ to mention, / for ",
+                    "width": 379.0104064941406,
+                    "height": 112.21353912353516,
+                    "children": [
+                      {
+                        "tag": "DIV",
+                        "id": "",
+                        "cls": ".flex.grow.flex-col.justify-start.gap-8",
+                        "text": "Review Changes  Ask anything, @ to mention, / for ",
+                        "width": 363.02081298828125,
+                        "height": 112.21353912353516,
+                        "children": [
+                          {
+                            "tag": "DIV",
+                            "id": "",
+                            "cls": ".relative.flex.flex-col.mb-2",
+                            "text": "Review Changes  Ask anything, @ to mention, / for ",
+                            "width": 363.02081298828125,
+                            "height": 104.21875,
+                            "children": null
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+]

@@ -809,33 +809,20 @@
             padding: 8px;
             /* No background or custom styles - let IDE content dictate styling */
             position: relative;
+            -webkit-overflow-scrolling: touch;
         }
 
-        /* Force readable text colors for injected IDE content */
-        .cascade-view,
+        /* Keep touch scrolling enabled for injected IDE content */
         .cascade-view * {
-            color: var(--text-primary) !important;
+            touch-action: auto !important;
+            overscroll-behavior: auto !important;
         }
 
         .cascade-view a {
             color: var(--accent-primary) !important;
         }
 
-        .cascade-view code,
-        .cascade-view pre {
-            color: #e0e0e0 !important;
-            background: rgba(0, 0, 0, 0.8) !important;
-            border-radius: 6px;
-            padding: 2px 6px;
-        }
-
         /* Light theme overrides for cascade view */
-        .light-theme .cascade-view code,
-        .light-theme .cascade-view pre {
-            color: #1a1a2e !important;
-            background: rgba(0, 0, 0, 0.05) !important;
-        }
-
         .light-theme .cascade-view {
             background: #ffffff !important;
         }
@@ -845,6 +832,65 @@
         .cascade-view svg {
             max-width: 100%;
             height: auto;
+        }
+
+        /* Reset raw buttons inside cascade to prevent native browser gray filling */
+        .cascade-view button {
+            background: transparent;
+            border: none;
+            padding: 0;
+            margin: 0;
+            appearance: none;
+        }
+
+        /* Remote Prompts History Display */
+        .remote-prompts-container {
+            width: 100%;
+            max-height: 120px;
+            /* ~3 lines of history */
+            overflow-y: hidden;
+            scroll-behavior: smooth;
+            pointer-events: none;
+            /* Non-interactive */
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            padding: 0 16px 8px 16px;
+            mask-image: linear-gradient(to bottom, transparent, black 15%, black 100%);
+            -webkit-mask-image: linear-gradient(to bottom, transparent, black 15%, black 100%);
+        }
+
+        .remote-prompt-item {
+            font-size: 13px;
+            color: var(--text-secondary);
+            background: var(--bg-glass);
+            padding: 8px 12px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            width: fit-content;
+            max-width: 90%;
+            align-self: flex-end;
+            animation: slideInUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+            word-wrap: break-word;
+        }
+
+        /* Highlight the most recent prompt */
+        .remote-prompt-item:last-child {
+            color: var(--text-primary);
+            border-color: var(--accent-primary);
+            background: rgba(14, 165, 233, 0.1);
+        }
+
+        @keyframes slideInUp {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
 
         .chat-msg {
@@ -2032,6 +2078,9 @@
                 <button class="quick-chip" onclick="sendQuick('help')">Help</button>
             </div>
 
+            <!-- Remote Prompt History -->
+            <div id="remotePrompts" class="remote-prompts-container"></div>
+
             <div class="chat-input-area">
                 <div class="chat-input-wrapper">
                     <input type="text" id="chatInput" class="chat-input" placeholder="Send a message..."
@@ -2484,7 +2533,42 @@
             function addChatMessage(msg, animate = true) {
                 chatMessages.push(msg);
                 if (chatMessages.length > 100) chatMessages.shift();
+
+                // Track user prompts for remote history display
+                if (msg.type === 'user' || msg.type === 'mobile_command') {
+                    // Only process unique prompts to prevent duplicates from history sync
+                    const isDuplicate = remotePrompts.length > 0 && remotePrompts[remotePrompts.length - 1].content === msg.content;
+                    if (!isDuplicate) {
+                        remotePrompts.push(msg);
+                        renderRemotePrompts();
+                    }
+                }
+
                 renderChat(animate);
+            }
+
+            let remotePrompts = [];
+
+            function renderRemotePrompts() {
+                const container = document.getElementById('remotePrompts');
+                if (!container) return;
+
+                // Keep only the last 3 prompts
+                if (remotePrompts.length > 3) {
+                    remotePrompts.shift();
+                }
+
+                if (remotePrompts.length === 0) {
+                    container.innerHTML = '';
+                    return;
+                }
+
+                container.innerHTML = remotePrompts.map(msg => `
+                    <div class="remote-prompt-item">${escapeHtml(msg.content)}</div>
+                `).join('');
+
+                // Smoothly pin to bottom when a new one is added
+                container.scrollTop = container.scrollHeight;
             }
 
             function renderChat(animate = true) {
@@ -3085,31 +3169,14 @@
                                     display: none !important;
                                 }
                                 
-                                /* Force content height */
-                                #cascade-container [style*="height"]:not(img):not(svg):not(video) {
-                                    height: auto !important;
-                                    max-height: none !important;
-                                }
+                                /* Prevent empty spacers from breaking layout */
                                 
-                                /* 1. Define the missing variable so ALL text using it becomes visible (Light Gray) */
+                                /* 1. Define the missing variable so ALL text using it becomes visible */
                                 #cascade-container {
-                                    --ide-text-color: #e4e4e7 !important;
+                                    --ide-text-color: var(--text-primary) !important;
                                 }
                                 
-                                /* 2. Target ONLY inline code elements for the pink styling */
-                                #cascade-container code:not(pre code) {
-                                    background: rgba(139, 92, 246, 0.25) !important;
-                                    color: #f0abfc !important;
-                                    padding: 2px 6px !important;
-                                    border-radius: 4px !important;
-                                    font-family: 'Fira Code', 'Consolas', 'Monaco', monospace !important;
-                                    font-size: 0.875em !important;
-                                    display: inline-block !important; /* Changed to inline-block for better padding */
-                                    visibility: visible !important;
-                                    opacity: 1 !important;
-                                    -webkit-text-fill-color: #f0abfc !important;
-                                    border: 1px solid rgba(240, 171, 252, 0.1) !important;
-                                }
+                                /* Removed manual code block styling to inherit IDE tailwind correctly */
                             `;
                             }
 

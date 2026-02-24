@@ -747,6 +747,11 @@ app.post('/api/upload', upload.single('image'), async (req, res) => {
 // Serve uploaded files
 app.use('/uploads', express.static(UPLOADS_DIR));
 
+// Serve Antigravity resources (for icons in chat)
+if (existsSync('/usr/share/antigravity')) {
+    app.use('/usr/share/antigravity', express.static('/usr/share/antigravity'));
+}
+
 // Set workspace path
 app.post('/api/workspace', (req, res) => {
     const { path } = req.body;

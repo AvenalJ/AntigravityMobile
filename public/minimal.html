@@ -224,7 +224,13 @@
             overflow-y: auto;
             padding: 16px;
             min-height: 0;
-            /* Important for flex overflow */
+            -webkit-overflow-scrolling: touch;
+        }
+
+        /* Force native touch scrolling even if IDE injects touch-action: none */
+        .cascade-view * {
+            touch-action: auto !important;
+            overscroll-behavior: auto !important;
         }
 
         .chat-empty {
@@ -378,25 +384,9 @@
             color: var(--accent-primary) !important;
         }
 
-        .cascade-view code,
-        .cascade-view pre {
-            color: #e0e0e0 !important;
-            background: rgba(0, 0, 0, 0.8) !important;
-            border-radius: 6px;
-            padding: 2px 6px;
-            white-space: pre-wrap !important;
-            word-break: break-word !important;
-        }
-
         /* Light theme overrides */
         .light-theme .cascade-view {
             background: #ffffff !important;
-        }
-
-        .light-theme .cascade-view code,
-        .light-theme .cascade-view pre {
-            color: #1a1a2e !important;
-            background: rgba(0, 0, 0, 0.05) !important;
         }
 
         /* Ensure images and content don't overflow */
@@ -404,6 +394,63 @@
         .cascade-view svg {
             max-width: 100% !important;
             height: auto !important;
+        }
+
+        /* Reset raw buttons inside cascade to prevent native browser gray filling */
+        .cascade-view button {
+            background: transparent;
+            border: none;
+            padding: 0;
+            margin: 0;
+            appearance: none;
+        }
+
+        /* Remote Prompts History Display */
+        .remote-prompts-container {
+            width: 100%;
+            max-height: 120px;
+            overflow-y: hidden;
+            scroll-behavior: smooth;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            padding: 0 16px 8px 16px;
+            mask-image: linear-gradient(to bottom, transparent, black 15%, black 100%);
+            -webkit-mask-image: linear-gradient(to bottom, transparent, black 15%, black 100%);
+        }
+
+        .remote-prompt-item {
+            font-size: 13px;
+            color: var(--text-secondary);
+            background: rgba(255, 255, 255, 0.05);
+            /* Same as --bg-glass */
+            padding: 8px 12px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            width: fit-content;
+            max-width: 90%;
+            align-self: flex-end;
+            animation: slideInUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+            word-wrap: break-word;
+        }
+
+        .remote-prompt-item:last-child {
+            color: var(--text-primary);
+            border-color: var(--accent-primary);
+            background: rgba(14, 165, 233, 0.1);
+        }
+
+        @keyframes slideInUp {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
 
         /* Control any absolutely positioned or oversized elements */
@@ -620,6 +667,9 @@
                 <span>Connecting to Antigravity...</span>
             </div>
         </div>
+
+        <!-- Remote Prompt History -->
+        <div id="remotePrompts" class="remote-prompts-container"></div>
 
         <div class="input-area">
             <div class="quick-chips">
@@ -870,6 +920,58 @@
         function sendQuick(cmd) {
             document.getElementById('chatInput').value = cmd;
             sendMessage();
+        }
+
+        // ====================================================================
+        // Message Handling & Remote Prompts
+        // ====================================================================
+        let remotePrompts = [];
+
+        function renderRemotePrompts() {
+            const container = document.getElementById('remotePrompts');
+            if (!container) return;
+
+            if (remotePrompts.length > 3) remotePrompts.shift();
+
+            if (remotePrompts.length === 0) {
+                container.innerHTML = '';
+                return;
+            }
+
+            container.innerHTML = remotePrompts.map(msg => `
+                <div class="remote-prompt-item">${escapeHtml(msg.content)}</div>
+            `).join('');
+
+            container.scrollTop = container.scrollHeight;
+        }
+
+        // Escape HTML for minimal view
+        function escapeHtml(unsafe) {
+            return (unsafe || '').toString()
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+
+        function handleMessage(data) {
+            if (data.event === 'history' && Array.isArray(data.data.messages)) {
+                const prompts = data.data.messages.filter(m => m.type === 'user' || m.type === 'mobile_command');
+                prompts.forEach(msg => {
+                    const isDuplicate = remotePrompts.length > 0 && remotePrompts[remotePrompts.length - 1].content === msg.content;
+                    if (!isDuplicate) remotePrompts.push(msg);
+                });
+                renderRemotePrompts();
+            } else if (data.event === 'message' || data.event === 'mobile_command') {
+                if (data.data && (data.data.type === 'user' || data.data.type === 'mobile_command')) {
+                    const isDuplicate = remotePrompts.length > 0 && remotePrompts[remotePrompts.length - 1].content === data.data.content;
+                    if (!isDuplicate) {
+                        remotePrompts.push(data.data);
+                        renderRemotePrompts();
+                    }
+                }
+            }
         }
 
         // ====================================================================
