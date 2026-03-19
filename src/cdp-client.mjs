@@ -7,18 +7,41 @@
  * - Page inspection
  */
 
-let cdpPort = 9333;
+const CDP_PORTS = [9222, 9333, 9000, 9001, 9002, 9003];
+let cdpPort = null; // auto-discovered
 let preferredWorkspace = null;
+
+/**
+ * Auto-discover the active CDP port by scanning known ports.
+ * Caches the result so subsequent calls are instant.
+ */
+async function discoverPort() {
+    if (cdpPort) return cdpPort;
+
+    for (const port of CDP_PORTS) {
+        try {
+            const res = await fetch(`http://localhost:${port}/json/version`, {
+                signal: AbortSignal.timeout(1500)
+            });
+            if (res.ok) {
+                cdpPort = port;
+                console.log(`🔌 CDP auto-discovered on port ${port}`);
+                return port;
+            }
+        } catch (e) { /* port not available */ }
+    }
+    throw new Error(`CDP not available on any port (tried ${CDP_PORTS.join(', ')})`);
+}
 
 function getCdpUrl() {
     return `http://localhost:${cdpPort}`;
 }
 
 /**
- * Set the active CDP device port
+ * Set the active CDP device port (skips auto-discovery)
  */
 export function setActiveDevice(port) {
-    cdpPort = parseInt(port) || 9333;
+    cdpPort = parseInt(port) || 9222;
 }
 
 /**
@@ -26,6 +49,13 @@ export function setActiveDevice(port) {
  */
 export function getActiveDevice() {
     return cdpPort;
+}
+
+/**
+ * Reset cached port so next call re-discovers (useful if IDE restarts on a different port)
+ */
+export function resetPort() {
+    cdpPort = null;
 }
 
 /**
@@ -48,6 +78,7 @@ export function getPreferredWorkspace() {
  * Get list of available CDP targets (pages/tabs)
  */
 export async function getTargets() {
+    await discoverPort();
     const response = await fetch(`${getCdpUrl()}/json/list`);
     return response.json();
 }
@@ -56,6 +87,7 @@ export async function getTargets() {
  * Get CDP version info
  */
 export async function getVersion() {
+    await discoverPort();
     const response = await fetch(`${getCdpUrl()}/json/version`);
     return response.json();
 }
