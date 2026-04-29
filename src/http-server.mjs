@@ -1346,20 +1346,6 @@ app.post('/api/cdp/focus', async (req, res) => {
     }
 });
 
-// Click an element in the IDE by XPath (forwarded from mobile)
-app.post('/api/cdp/click', async (req, res) => {
-    try {
-        const { xpath, text } = req.body;
-        if (!xpath) return res.status(400).json({ error: 'xpath required' });
-
-        const result = await CDP.clickElementByXPath(xpath);
-        res.json(result);
-    } catch (e) {
-        res.status(500).json({ success: false, error: e.message });
-    }
-});
-
-
 // Get live chat messages from IDE
 app.get('/api/cdp/chat', async (req, res) => {
     try {

@@ -1,16 +1,11 @@
+        let chatLiveInitialized = false;
+
         async function initChatLive() {
-            // Start components in parallel to avoid blocking
+            if (chatLiveInitialized) return;
+            chatLiveInitialized = true;
+
             loadModelsAndModes();
             startChatPolling();
-            
-            // Set up MutationObserver to sanitize IDE view whenever content updates
-            const container = document.getElementById('cascade-container');
-            if (container) {
-                const observer = new MutationObserver(() => {
-                    sanitizeIDEView(container);
-                });
-                observer.observe(container, { childList: true, subtree: true });
-            }
         }
 
         async function loadModelsAndModes() {
@@ -272,6 +267,15 @@
         let lastCascadeHash = null;
         let cssLoaded = false;
 
+        function quickHash(str) {
+            let h = 0;
+            for (let i = 0; i < str.length; i++) {
+                h = ((h << 5) - h) + str.charCodeAt(i);
+                h = h & h;
+            }
+            return h.toString(36);
+        }
+
 
 
 
@@ -328,8 +332,7 @@
                 const data = await res.json();
 
                 if (data.html) {
-                    // Simple hash check to avoid unnecessary DOM updates
-                    const hash = data.html.length.toString(36);
+                    const hash = quickHash(data.html);
                     if (hash !== lastCascadeHash) {
                         lastCascadeHash = hash;
 
@@ -484,5 +487,4 @@
         let currentFilePath = null;
         let previousActivePanel = 'chat'; // Track what was active before Files opened
 
-        // Initialize Chat Live components
-        initChatLive();
+        // initChatLive() is called from app.js after auth completes
