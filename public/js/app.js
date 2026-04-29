@@ -7,7 +7,6 @@ async function init() {
     loadSidebarState();
     await checkAuth();
     connectWebSocket();
-    startChatPolling();
     loadModelsAndModes();
     applyMobileUISettings();
     refreshTaskQueue();

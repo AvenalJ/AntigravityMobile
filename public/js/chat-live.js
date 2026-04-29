@@ -1,6 +1,17 @@
-/* ============================================
- * Chat Live — Models, polling, live view
- * ============================================ */
+        async function initChatLive() {
+            // Start components in parallel to avoid blocking
+            loadModelsAndModes();
+            startChatPolling();
+            
+            // Set up MutationObserver to sanitize IDE view whenever content updates
+            const container = document.getElementById('cascade-container');
+            if (container) {
+                const observer = new MutationObserver(() => {
+                    sanitizeIDEView(container);
+                });
+                observer.observe(container, { childList: true, subtree: true });
+            }
+        }
 
         async function loadModelsAndModes() {
             console.log('[Debug] loadModelsAndModes called');
@@ -264,11 +275,56 @@
 
 
 
+        // ====================================================================
+        // UI Sanitizer for Mobile
+        // ====================================================================
+        function sanitizeIDEView(container) {
+            if (!container) return;
+
+            // 1. Hide <bdi> elements (file paths in list rows)
+            container.querySelectorAll('bdi').forEach(el => {
+                el.style.display = 'none';
+            });
+
+            // 2. Hide common text labels that should be icons
+            const ICON_LABELS = ['undo', 'redo', 'thumb_up', 'thumb_down', 'content_copy', 'chevron_right', 'chevron_left'];
+            container.querySelectorAll('span, div, button').forEach(el => {
+                const text = (el.textContent || '').trim().toLowerCase();
+                if (ICON_LABELS.includes(text)) {
+                    el.style.display = 'none';
+                    // If it has a parent that is a button/action, check if we need to hide that too
+                    // but usually just hiding the text is enough.
+                }
+                
+                // Hide anything that looks like a path (starts with / or has /src/)
+                if (text.includes('/src/') || text.startsWith('public/')) {
+                    el.style.display = 'none';
+                }
+            });
+
+            // 3. Flatten list rows to prevent merging
+            container.querySelectorAll('.monaco-list-row').forEach(row => {
+                row.style.display = 'flex';
+                row.style.alignItems = 'center';
+                row.style.overflow = 'hidden';
+            });
+        }
+
         async function fetchLiveChat() {
             if (!chatPollingActive) return;
 
             try {
                 const res = await authFetch(`${serverUrl}/api/chat/snapshot`);
+                if (!res.ok) {
+                    const errorData = await res.json().catch(() => ({}));
+                    document.getElementById('cascade-container').innerHTML = `
+                        <div class="chat-empty">
+                            <span class="icon">⚠️</span>
+                            <span>${errorData.error || 'Connection error (' + res.status + ')'}</span>
+                        </div>
+                    `;
+                    return;
+                }
                 const data = await res.json();
 
                 if (data.html) {
@@ -303,6 +359,22 @@
                                     display: none !important;
                                 }
                                 
+                                /* Remove redundant file paths that merge with text on mobile */
+                                #cascade-container .label-description,
+                                #cascade-container .monaco-icon-label-description-container,
+                                #cascade-container .monaco-list-row .description,
+                                #cascade-container [class*="description"],
+                                #cascade-container [class*="path-label"] {
+                                    display: none !important;
+                                }
+
+                                /* Ensure text doesn't overflow and merge */
+                                #cascade-container .monaco-list-row {
+                                    overflow: hidden !important;
+                                    text-overflow: ellipsis !important;
+                                    white-space: nowrap !important;
+                                }
+                                
                                 /* Prevent empty spacers from breaking layout */
                                 
                                 /* 1. Define the missing variable so ALL text using it becomes visible */
@@ -312,11 +384,23 @@
                                 
                                 /* Ensure codicon font renders properly on mobile */
                                 #cascade-container .codicon,
-                                #cascade-container [class*="codicon-"] {
+                                #cascade-container [class*="codicon-"],
+                                #cascade-container [class*="icon-"] {
                                     font-family: 'codicon' !important;
+                                    font-style: normal !important;
+                                    font-weight: normal !important;
+                                    display: inline-block !important;
+                                    text-transform: none !important;
+                                    line-height: 1 !important;
+                                    -webkit-font-smoothing: antialiased !important;
                                 }
                                 
-                                /* Removed manual code block styling to inherit IDE tailwind correctly */
+                                /* Fix for specific double-rendering or blurry icons */
+                                #cascade-container .codicon:before,
+                                #cascade-container [class*="codicon-"]:before {
+                                    display: inline-block !important;
+                                    vertical-align: middle !important;
+                                }
                             `;
                         }
 
@@ -329,6 +413,9 @@
 
                         // Inject the raw cascade HTML
                         container.innerHTML = finalHtml;
+
+                        // Sanitize UI for mobile (hide labels/paths that CSS might miss)
+                        sanitizeIDEView(container);
 
                         // Attach click handlers for approval buttons in the injected content
                         attachApprovalHandlers(container);
@@ -396,3 +483,6 @@
         // ====================================================================
         let currentFilePath = null;
         let previousActivePanel = 'chat'; // Track what was active before Files opened
+
+        // Initialize Chat Live components
+        initChatLive();
