@@ -448,6 +448,34 @@ function buildInlinedHtml() {
 // Build on startup
 buildInlinedHtml();
 
+// Watch public/css and public/js directories — rebuild cache on any file change
+(function watchPublicFiles() {
+    const publicDir = join(PROJECT_ROOT, 'public');
+    let rebuildTimer = null;
+    const scheduleRebuild = () => {
+        if (rebuildTimer) clearTimeout(rebuildTimer);
+        rebuildTimer = setTimeout(() => {
+            console.log('📄 Public files changed — rebuilding inlined HTML...');
+            buildInlinedHtml();
+            rebuildTimer = null;
+        }, 300);
+    };
+    for (const subdir of ['css', 'js']) {
+        const dir = join(publicDir, subdir);
+        if (existsSync(dir)) {
+            try {
+                watch(dir, { persistent: false }, scheduleRebuild);
+            } catch (e) {
+                console.warn(`⚠️ Could not watch ${subdir}: ${e.message}`);
+            }
+        }
+    }
+    // Also watch index.html itself
+    try {
+        watch(join(publicDir, 'index.html'), { persistent: false }, scheduleRebuild);
+    } catch (e) { }
+})();
+
 // Serve the inlined HTML for the root page
 app.get('/', (req, res) => {
     if (!cachedInlinedHtml) buildInlinedHtml();
@@ -1186,15 +1214,6 @@ app.delete('/api/admin/screenshots', localhostOnly, (req, res) => {
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Health check endpoint (before auth middleware - allows launcher to verify server is running)
-app.get('/api/status', (req, res) => {
-    res.json({
-        status: 'ok',
-        authEnabled,
-        uptime: process.uptime()
-    });
-});
-
 // Auth middleware - protect all other API routes
 app.use('/api', (req, res, next) => {
     // Skip auth check for auth and admin endpoints
@@ -1704,8 +1723,8 @@ app.get('/api/files', (req, res) => {
         const isAtFilesystemRoot = parent === fullPath || (isWindows && fullPath.match(/^[A-Z]:\\?$/i));
         const isAtRoot = isAtWorkspaceRoot || isAtFilesystemRoot;
 
-        // Auto-start watching this folder for changes
-        startWatching(fullPath);
+        // Only restart watcher if we navigated to a different folder
+        if (fullPath !== watchedPath) startWatching(fullPath);
 
         res.json({
             path: fullPath,
@@ -1932,6 +1951,9 @@ app.get('/api/status', async (req, res) => {
 
     res.json({
         ok: true,
+        status: 'ok',
+        authEnabled,
+        uptime: process.uptime(),
         clients: clients.size,
         inbox_count: inbox.length,
         message_count: messages.length,
@@ -1943,10 +1965,13 @@ app.get('/api/status', async (req, res) => {
 });
 
 // ============================================================================
-// WebSocket
+// WebSocket — with ping/pong heartbeat to drop dead clients
 // ============================================================================
+const WS_PING_INTERVAL_MS = 25000;
+
 wss.on('connection', (ws) => {
     clients.add(ws);
+    ws.isAlive = true;
     console.log(`🔌 Client connected. Total: ${clients.size}`);
 
     // Send history
@@ -1955,6 +1980,8 @@ wss.on('connection', (ws) => {
         data: { messages: messages.slice(-50) },
         ts: new Date().toISOString()
     }));
+
+    ws.on('pong', () => { ws.isAlive = true; });
 
     // Handle messages from mobile
     ws.on('message', async (data) => {
@@ -1979,7 +2006,25 @@ wss.on('connection', (ws) => {
         clients.delete(ws);
         console.log(`🔌 Client disconnected. Total: ${clients.size}`);
     });
+
+    ws.on('error', () => {
+        clients.delete(ws);
+        ws.terminate();
+    });
 });
+
+// Ping all clients every 25s; drop any that haven't responded
+const wsPingTimer = setInterval(() => {
+    for (const ws of clients) {
+        if (!ws.isAlive) {
+            clients.delete(ws);
+            ws.terminate();
+            continue;
+        }
+        ws.isAlive = false;
+        ws.ping();
+    }
+}, WS_PING_INTERVAL_MS);
 
 // ============================================================================
 // Start

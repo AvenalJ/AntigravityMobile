@@ -108,7 +108,7 @@
 
         function escapeQuotes(str) {
             if (!str) return '';
-            return str.replace(/'/g, "\\'").replace(/\\/g, "\\\\");
+            return str.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
         }
 
         // ====================================================================
@@ -227,7 +227,7 @@
             <button onclick="closeImageOverlay()" style="width: 40px; height: 40px; border: none; background: rgba(255,255,255,0.2); color: white; font-size: 20px; border-radius: 50%; cursor: pointer;">✕</button>
         </div>
         <div id="imageLoader" style="display: flex; flex-direction: column; align-items: center; gap: 16px;">
-            <div style="width: 48px; height: 48px; border: 3px solid rgba(255,255,255,0.1); border-top-color: #8b5cf6; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+            <div style="width: 48px; height: 48px; border: 3px solid rgba(255,255,255,0.1); border-top-color: #0ea5e9; border-radius: 50%; animation: spin 1s linear infinite;"></div>
             <span style="color: rgba(255,255,255,0.7); font-size: 14px;">Loading image...</span>
         </div>
         <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
