@@ -5,6 +5,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Antigravity - Lite</title>
+    <!-- Codicons font for IDE icons -->
+    <link href="https://unpkg.com/@vscode/codicons@0.0.36/dist/codicon.css" rel="stylesheet">
     <link rel="icon"
         href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
     <style>
@@ -628,6 +630,38 @@
         .keyboard-open .cascade-view {
             max-height: 40vh !important;
         }
+
+        /* --- Mobile IDE View Fixes --- */
+        #cascade-container .label-description,
+        #cascade-container .monaco-icon-label-description-container,
+        #cascade-container .monaco-list-row .description,
+        #cascade-container .monaco-list-row [class*="description"],
+        #cascade-container .monaco-list-row [class*="path"],
+        #cascade-container [class*="LabelDescription"],
+        #cascade-container [class*="label"], 
+        #cascade-container [class*="description"],
+        #cascade-container .monaco-button .label,
+        #cascade-container .action-item .label,
+        #cascade-container .action-label:not(:empty) + .label,
+        #cascade-container .codicon + span,
+        #cascade-container .codicon + div,
+        #cascade-container .action-item span:not(.codicon) {
+            display: none !important;
+        }
+        #cascade-container .monaco-list-row {
+            display: flex !important;
+            align-items: center !important;
+            overflow: hidden !important;
+            white-space: nowrap !important;
+        }
+        #cascade-container .codicon,
+        #cascade-container [class*="codicon-"],
+        #cascade-container [class*="icon-"] {
+            font-family: 'codicon' !important;
+            font-style: normal !important;
+            font-weight: normal !important;
+            display: inline-block !important;
+        }
     </style>
 </head>
 
@@ -835,6 +869,20 @@
             pollTimer = setInterval(fetchChat, 2000);
         }
 
+        function sanitizeIDEView(container) {
+            if (!container) return;
+            // Hide <bdi> elements (paths)
+            container.querySelectorAll('bdi').forEach(el => el.style.display = 'none');
+            // Hide icon labels
+            const ICON_LABELS = ['undo', 'redo', 'thumb_up', 'thumb_down', 'content_copy'];
+            container.querySelectorAll('span, div, button').forEach(el => {
+                const text = (el.textContent || '').trim().toLowerCase();
+                if (ICON_LABELS.includes(text) || text.includes('/src/') || text.startsWith('public/')) {
+                    el.style.display = 'none';
+                }
+            });
+        }
+
         async function fetchChat() {
             try {
                 const res = await authFetch(`${serverUrl}/api/chat/snapshot`);
@@ -846,16 +894,43 @@
                     if (hash !== lastCascadeHash) {
                         lastCascadeHash = hash;
 
-                        if (!cssLoaded && data.css) {
-                            const style = document.createElement('style');
-                            style.id = 'cascadeStyles';
-                            style.textContent = data.css;
-                            document.head.appendChild(style);
+                        if (data.css) {
+                            let style = document.getElementById('cascadeStyles');
+                            if (!style) {
+                                style = document.createElement('style');
+                                style.id = 'cascadeStyles';
+                                document.head.appendChild(style);
+                            }
+                            style.textContent = `
+                                ${data.css}
+                                /* Custom fixes for mobile */
+                                .label-description, 
+                                .monaco-icon-label-description-container,
+                                .monaco-list-row .description,
+                                [class*="description"],
+                                [class*="path-label"] {
+                                    display: none !important;
+                                }
+                                .monaco-list-row {
+                                    overflow: hidden !important;
+                                    text-overflow: ellipsis !important;
+                                    white-space: nowrap !important;
+                                }
+                                .codicon, [class*="codicon-"], [class*="icon-"] {
+                                    font-family: 'codicon' !important;
+                                    font-style: normal !important;
+                                    font-weight: normal !important;
+                                    display: inline-block !important;
+                                }
+                            `;
                             cssLoaded = true;
                         }
 
                         const container = document.getElementById('cascade-container');
                         container.innerHTML = data.html;
+
+                        // Sanitize UI for mobile
+                        sanitizeIDEView(container);
 
                         // Scroll to bottom - find the last actual content element
                         setTimeout(() => {

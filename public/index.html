@@ -46,6 +46,107 @@
         <!-- Chat View (Main) -->
         <!-- Dynamic IDE styles injected here -->
         <style id="cascadeStyles"></style>
+        <style>
+            /* Model/Mode Selector */
+            .model-mode-row {
+                display: flex;
+                gap: 8px;
+                margin-bottom: 8px;
+                padding: 0 4px;
+            }
+            .model-selector, .mode-selector {
+                flex: 1;
+                min-width: 0;
+                padding: 8px 12px;
+                background: var(--bg-card);
+                border: 1px solid var(--border);
+                border-radius: 10px;
+                color: var(--text-primary);
+                font-size: 12px;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                cursor: pointer;
+            }
+            .model-selector span, .mode-selector span {
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+            .workspace-label {
+                font-size: 11px;
+                color: var(--accent-primary);
+                opacity: 0.8;
+                font-weight: 500;
+                margin-left: 8px;
+                padding: 2px 6px;
+                background: rgba(var(--accent-primary-rgb), 0.1);
+                border-radius: 4px;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                max-width: 120px;
+                display: none; /* Hidden if empty */
+            }
+            .sidebar-logo {
+                display: flex;
+                align-items: center;
+                gap: 4px;
+            }
+            #workspaceLabel:not(:empty) {
+                display: inline-block;
+            }
+
+            /* --- Mobile IDE View Fixes --- */
+            
+            /* 1. Hide redundant file paths/descriptions that crowd the screen */
+            #cascade-container .label-description,
+            #cascade-container .monaco-icon-label-description-container,
+            #cascade-container .monaco-list-row .description,
+            #cascade-container .monaco-list-row [class*="description"],
+            #cascade-container .monaco-list-row [class*="path"],
+            #cascade-container [class*="LabelDescription"],
+            #cascade-container .monaco-icon-label span + span,
+            #cascade-container .monaco-list-row span + span,
+            #cascade-container .action-item span:not(.codicon),
+            #cascade-container .action-item div:not(.codicon),
+            #cascade-container .monaco-button .label,
+            #cascade-container .action-item .label,
+            #cascade-container .action-label:not(:empty) + .label,
+            #cascade-container .monaco-action-bar .action-label + span,
+            #cascade-container .codicon + span,
+            #cascade-container .codicon + div,
+            #cascade-container bdi,
+            #cascade-container [class*="path-label"] {
+                display: none !important;
+            }
+
+            /* 2. Ensure row items don't merge or wrap weirdly */
+            #cascade-container .monaco-list-row {
+                display: flex !important;
+                align-items: center !important;
+                overflow: hidden !important;
+                white-space: nowrap !important;
+            }
+
+            /* 3. Fix icon rendering */
+            #cascade-container .codicon,
+            #cascade-container [class*="codicon-"],
+            #cascade-container [class*="icon-"] {
+                font-family: 'codicon' !important;
+                font-style: normal !important;
+                font-weight: normal !important;
+                display: inline-block !important;
+                text-transform: none !important;
+                line-height: 1 !important;
+                -webkit-font-smoothing: antialiased !important;
+            }
+
+            /* 4. Hide virtualized spacers */
+            #cascade-container [style*="min-height"]:not(:has(*)) {
+                display: none !important;
+            }
+        </style>
 
         <div class="chat-container">
             <!-- Live cascade content will be injected here -->
@@ -129,6 +230,7 @@
             </button>
             <div class="sidebar-logo">
                 <span class="logo-text">Antigravity</span>
+                <span id="workspaceLabel" class="workspace-label"></span>
             </div>
         </div>
         <div class="sidebar-nav">
@@ -268,6 +370,15 @@
             <div class="settings-section">
                 <div class="settings-title">Connection</div>
                 <div class="card">
+                    <div class="setting-row">
+                        <div class="setting-label">
+                            <h4>Workspace Target</h4>
+                            <p>Select which IDE window to control</p>
+                        </div>
+                        <select id="workspaceSelect" class="setting-value" style="border: none; cursor: pointer; max-width: 150px; text-overflow: ellipsis;" onchange="setWorkspaceTarget(this.value)">
+                            <option value="">Auto-detect</option>
+                        </select>
+                    </div>
                     <div class="setting-row">
                         <div class="setting-label">
                             <h4>CDP Protocol</h4>

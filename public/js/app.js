@@ -7,12 +7,14 @@ async function init() {
     loadSidebarState();
     await checkAuth();
     connectWebSocket();
-    startChatPolling();
-    loadModelsAndModes();
     applyMobileUISettings();
     refreshTaskQueue();
     loadAssistChatHistory();
     loadAssistStatusBadge();
+
+    if (typeof initChatLive === 'function') {
+        initChatLive();
+    }
 }
 
 init();

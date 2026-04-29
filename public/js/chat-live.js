@@ -1,35 +1,32 @@
-/* ============================================
- * Chat Live — Models, polling, live view
- * ============================================ */
+        let chatLiveInitialized = false;
+
+        async function initChatLive() {
+            if (chatLiveInitialized) return;
+            chatLiveInitialized = true;
+
+            loadModelsAndModes();
+            startChatPolling();
+        }
 
         async function loadModelsAndModes() {
-            console.log('[Debug] loadModelsAndModes called');
             try {
                 const res = await authFetch('/api/models');
                 const data = await res.json();
-                console.log('[Debug] Models API response:', data);
 
                 availableModels = data.models || [];
                 currentModel = data.currentModel || 'Unknown';
                 currentMode = data.currentMode || 'Planning';
 
-                console.log('[Debug] Setting model:', currentModel, 'mode:', currentMode);
-
-                // Update UI
                 document.getElementById('currentModelLabel').textContent = currentModel;
                 document.getElementById('currentModeLabel').textContent = currentMode.replace(/\s+/g, ' ').split(' ')[0];
 
-                // Populate model list
                 const modelList = document.getElementById('modelList');
-                console.log('[Debug] modelList element:', modelList);
                 modelList.innerHTML = availableModels.map(model => `
                         <div class="dropdown-item ${model === currentModel ? 'active' : ''}" onclick="selectModel('${escapeHtml(model)}')">
                             ${escapeHtml(model)}
                         </div>
                     `).join('');
-                console.log('[Debug] Models loaded:', availableModels.length);
             } catch (e) {
-                console.log('[Debug] Failed to load models:', e);
                 document.getElementById('currentModelLabel').textContent = 'Not connected';
             }
         }
@@ -41,13 +38,10 @@
             dropdownDebounce = true;
             setTimeout(() => dropdownDebounce = false, 100);
 
-            console.log('[Debug] toggleModelDropdown called');
             const dropdown = document.getElementById('modelDropdown');
             const modeDropdown = document.getElementById('modeDropdown');
-            console.log('[Debug] dropdown element:', dropdown, 'current display:', dropdown?.style?.display);
             modeDropdown.style.display = 'none';
             dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
-            console.log('[Debug] dropdown display after toggle:', dropdown.style.display);
         }
 
         function toggleModeDropdown(event) {
@@ -68,7 +62,6 @@
         }
 
         async function selectModel(modelName) {
-            console.log('[selectModel] Requesting model change to:', modelName);
             closeAllDropdowns();
             document.getElementById('currentModelLabel').textContent = 'Changing...';
 
@@ -79,30 +72,22 @@
                     body: JSON.stringify({ model: modelName })
                 });
                 const result = await res.json();
-                console.log('[selectModel] API response:', result);
-                if (result.debug) {
-                    console.log('[selectModel] CLICKED ELEMENT:', JSON.stringify(result.debug, null, 2));
-                }
 
                 if (result.success) {
                     currentModel = result.selected || modelName;
                     document.getElementById('currentModelLabel').textContent = currentModel;
                     showToast(`Model: ${currentModel}`, 'success');
-                    console.log('[selectModel] Success! Model set to:', currentModel);
                 } else {
                     document.getElementById('currentModelLabel').textContent = currentModel;
                     showToast(result.error || 'Failed to change model', 'error');
-                    console.log('[selectModel] Failed:', result.error);
                 }
             } catch (e) {
                 document.getElementById('currentModelLabel').textContent = currentModel;
                 showToast('Network error', 'error');
-                console.log('[selectModel] Network error:', e);
             }
         }
 
         async function selectMode(modeName) {
-            console.log('[selectMode] Requesting mode change to:', modeName);
             closeAllDropdowns();
             document.getElementById('currentModeLabel').textContent = '...';
 
@@ -113,31 +98,18 @@
                     body: JSON.stringify({ mode: modeName })
                 });
                 const result = await res.json();
-                console.log('[selectMode] API response:', result);
-                if (result.debug) {
-                    console.log('[selectMode] CLICKED ELEMENT:', JSON.stringify(result.debug, null, 2));
-                }
 
                 if (result.success) {
                     currentMode = modeName;
                     document.getElementById('currentModeLabel').textContent = modeName;
                     showToast(`Mode: ${modeName}`, 'success');
-                    console.log('[selectMode] Success! Mode set to:', modeName);
                 } else {
                     document.getElementById('currentModeLabel').textContent = currentMode;
                     showToast(result.error || 'Failed to change mode', 'error');
-                    console.log('[selectMode] Failed:', result.error);
-                    if (result.candidatesFound) {
-                        console.log('[selectMode] Candidates found:', result.candidatesFound);
-                    }
-                    if (result.allTexts) {
-                        console.log('[selectMode] All cursor-pointer texts:', result.allTexts);
-                    }
                 }
             } catch (e) {
                 document.getElementById('currentModeLabel').textContent = currentMode;
                 showToast('Network error', 'error');
-                console.log('[selectMode] Network error:', e);
             }
         }
 
@@ -160,6 +132,9 @@
             const NEUTRAL_DYNAMIC = /^(thought for|expand all|collapse all)/i;
 
             container.querySelectorAll('[data-xpath]').forEach(el => {
+                // Skip elements already bound to prevent duplicate listeners on re-render
+                if (el.dataset.bound) return;
+
                 const xpath = el.getAttribute('data-xpath');
                 const label = (el.innerText || el.getAttribute('aria-label') || '').trim().slice(0, 60);
                 if (!xpath || !label) return;
@@ -174,8 +149,9 @@
                 else if (NEUTRAL_DYNAMIC.test(label)) action = 'neutral';
                 else return; // Not a recognized actionable button
 
-                // Tag for CSS styling
+                // Tag for CSS styling and deduplication
                 el.setAttribute('data-mobile-action', action);
+                el.dataset.bound = '1';
 
                 el.addEventListener('click', async (e) => {
                     e.preventDefault();
@@ -214,13 +190,6 @@
             });
         }
 
-        // Keep old name as alias for any remaining callers
-        function attachApprovalHandlers(container) {
-            attachInteractiveHandlers(container);
-        }
-
-
-
         // Close dropdowns when clicking outside
         document.addEventListener('click', (e) => {
             if (!e.target.closest('.model-selector') && !e.target.closest('.mode-selector') &&
@@ -232,10 +201,6 @@
         // ====================================================================
         // Helpers
         // ====================================================================
-        function formatTime(ts) {
-            return ts ? new Date(ts).toLocaleTimeString() : '';
-        }
-
         function escapeHtml(text) {
             if (!text) return '';
             const div = document.createElement('div');
@@ -259,21 +224,61 @@
         let chatPollingActive = false;
         let chatPollTimer = null;
         let lastCascadeHash = null;
-        let cssLoaded = false;
 
+        function quickHash(str) {
+            let h = 0;
+            for (let i = 0; i < str.length; i++) {
+                h = ((h << 5) - h) + str.charCodeAt(i);
+                h = h & h;
+            }
+            return h.toString(36);
+        }
 
+        // ====================================================================
+        // UI Sanitizer for Mobile
+        // ====================================================================
+        function sanitizeIDEView(container) {
+            if (!container) return;
 
+            // 1. Hide <bdi> elements (file paths in list rows)
+            container.querySelectorAll('bdi').forEach(el => {
+                el.style.display = 'none';
+            });
+
+            // 2. Hide codicon text labels (icon font ligatures that render as text on mobile)
+            const ICON_LABELS = new Set(['undo', 'redo', 'thumb_up', 'thumb_down', 'content_copy', 'chevron_right', 'chevron_left']);
+            container.querySelectorAll('.codicon, [class*="codicon-"]').forEach(el => {
+                const text = (el.textContent || '').trim().toLowerCase();
+                if (ICON_LABELS.has(text)) el.style.display = 'none';
+            });
+
+            // 3. Flatten list rows to prevent merging
+            container.querySelectorAll('.monaco-list-row').forEach(row => {
+                row.style.display = 'flex';
+                row.style.alignItems = 'center';
+                row.style.overflow = 'hidden';
+            });
+        }
 
         async function fetchLiveChat() {
             if (!chatPollingActive) return;
 
             try {
                 const res = await authFetch(`${serverUrl}/api/chat/snapshot`);
+                if (!res.ok) {
+                    const errorData = await res.json().catch(() => ({}));
+                    document.getElementById('cascade-container').innerHTML = `
+                        <div class="chat-empty">
+                            <span class="icon">⚠️</span>
+                            <span>${errorData.error || 'Connection error (' + res.status + ')'}</span>
+                        </div>
+                    `;
+                    return;
+                }
                 const data = await res.json();
 
                 if (data.html) {
-                    // Simple hash check to avoid unnecessary DOM updates
-                    const hash = data.html.length.toString(36);
+                    const hash = quickHash(data.html);
                     if (hash !== lastCascadeHash) {
                         lastCascadeHash = hash;
 
@@ -293,7 +298,7 @@
                                     position: relative !important;
                                     overscroll-behavior-y: contain !important;
                                 }
-                                
+
                                 /* Hide virtualized scroll placeholders */
                                 #cascade-container [style*="min-height"] {
                                     min-height: 0 !important;
@@ -302,40 +307,63 @@
                                 #cascade-container [class*="bg-gray-500"]:not(:has(*)) {
                                     display: none !important;
                                 }
-                                
-                                /* Prevent empty spacers from breaking layout */
-                                
+
+                                /* Remove redundant file paths that merge with text on mobile */
+                                #cascade-container .label-description,
+                                #cascade-container .monaco-icon-label-description-container,
+                                #cascade-container .monaco-list-row .description,
+                                #cascade-container [class*="description"],
+                                #cascade-container [class*="path-label"] {
+                                    display: none !important;
+                                }
+
+                                /* Ensure text doesn't overflow and merge */
+                                #cascade-container .monaco-list-row {
+                                    overflow: hidden !important;
+                                    text-overflow: ellipsis !important;
+                                    white-space: nowrap !important;
+                                }
+
                                 /* 1. Define the missing variable so ALL text using it becomes visible */
                                 #cascade-container {
                                     --ide-text-color: var(--text-primary) !important;
                                 }
-                                
+
                                 /* Ensure codicon font renders properly on mobile */
                                 #cascade-container .codicon,
-                                #cascade-container [class*="codicon-"] {
+                                #cascade-container [class*="codicon-"],
+                                #cascade-container [class*="icon-"] {
                                     font-family: 'codicon' !important;
+                                    font-style: normal !important;
+                                    font-weight: normal !important;
+                                    display: inline-block !important;
+                                    text-transform: none !important;
+                                    line-height: 1 !important;
+                                    -webkit-font-smoothing: antialiased !important;
                                 }
-                                
-                                /* Removed manual code block styling to inherit IDE tailwind correctly */
+
+                                /* Fix for specific double-rendering or blurry icons */
+                                #cascade-container .codicon:before,
+                                #cascade-container [class*="codicon-"]:before {
+                                    display: inline-block !important;
+                                    vertical-align: middle !important;
+                                }
                             `;
                         }
 
                         const container = document.getElementById('cascade-container');
                         const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 100;
 
-                        // Merge with cached content if caching is enabled
-                        let finalHtml = data.html;
+                        container.innerHTML = data.html;
 
-
-                        // Inject the raw cascade HTML
-                        container.innerHTML = finalHtml;
+                        // Sanitize UI for mobile (hide labels/paths that CSS might miss)
+                        sanitizeIDEView(container);
 
                         // Attach click handlers for approval buttons in the injected content
-                        attachApprovalHandlers(container);
+                        attachInteractiveHandlers(container);
 
                         // Scroll to bottom if was at bottom
                         if (isAtBottom) {
-                            // Use scrollIntoView on the last element for better reliability
                             setTimeout(() => {
                                 if (container.lastElementChild) {
                                     container.lastElementChild.scrollIntoView({ behavior: 'smooth', block: 'end' });
@@ -354,7 +382,7 @@
                     `;
                 }
             } catch (e) {
-                console.log('Chat fetch error:', e);
+                // Silently handle network errors during polling
             }
         }
 
@@ -368,7 +396,6 @@
         }
 
         function restartChatPolling() {
-            // Restart polling with new interval
             if (chatPollTimer) {
                 clearInterval(chatPollTimer);
                 chatPollTimer = null;
@@ -396,3 +423,5 @@
         // ====================================================================
         let currentFilePath = null;
         let previousActivePanel = 'chat'; // Track what was active before Files opened
+
+        // initChatLive() is called from app.js after auth completes

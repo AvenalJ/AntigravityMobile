@@ -15,41 +15,10 @@ echo.
 where node >nul 2>&1
 if %errorlevel% neq 0 (
     echo Node.js is not installed on your system.
-    echo.
-    echo Would you like to install it automatically?
-    echo This requires Windows 10/11 with winget.
-    echo.
-    choice /C YN /M "Install Node.js now"
-    if errorlevel 2 goto :nonode
-    if errorlevel 1 goto :installnode
-)
-goto :checkmodules
-
-:installnode
-echo.
-echo Installing Node.js via winget...
-echo This may take a few minutes...
-echo.
-winget install OpenJS.NodeJS.LTS --accept-package-agreements --accept-source-agreements
-if %errorlevel% neq 0 (
-    echo.
-    echo ERROR: Failed to install Node.js via winget.
-    echo Please install manually from https://nodejs.org/
-    pause
+    echo Please install Node.js manually from https://nodejs.org/
     exit /b 1
 )
-echo.
-echo Node.js installed successfully!
-echo Please close this window and run the script again.
-pause
-exit /b 0
-
-:nonode
-echo.
-echo Please install Node.js manually from https://nodejs.org/
-echo Then run this script again.
-pause
-exit /b 1
+goto :checkmodules
 
 :checkmodules
 :: Check if node_modules exists
@@ -72,52 +41,7 @@ if not exist "node_modules\" (
 echo Starting server...
 echo.
 
-:: Check if cloudflared is installed (needed for remote access)
-where cloudflared >nul 2>&1
-if %errorlevel% neq 0 (
-    echo cloudflared is not installed ^(needed for Remote Access^).
-    echo.
-    choice /C YN /M "Install cloudflared now (optional)"
-    if errorlevel 2 goto :skipcf
-    if errorlevel 1 goto :installcf
-)
-goto :skipcf
-
-:installcf
-echo.
-echo Installing cloudflared via winget...
-winget install --id Cloudflare.cloudflared --accept-package-agreements --accept-source-agreements
-if %errorlevel% neq 0 (
-    echo.
-    echo WARNING: Failed to install cloudflared. Remote access will not be available.
-    echo You can install it manually later from:
-    echo https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/
-    echo.
-) else (
-    echo.
-    echo cloudflared installed successfully!
-    echo.
-)
-
-:skipcf
-
-echo ==========================================
-echo   Security Setup (Optional)
-echo ==========================================
-echo.
-choice /C YN /M "Enable PIN authentication"
-if errorlevel 2 goto :nopin
-if errorlevel 1 goto :setpin
-
-:setpin
-set /p MOBILE_PIN="Enter a 4-6 digit PIN: "
-echo.
-goto :startserver
-
-:nopin
-echo Continuing without authentication...
-echo.
-
+:: Removed interactive cloudflared and PIN setup prompts for automatic headless startup
 :startserver
 node src\launcher.mjs
 pause

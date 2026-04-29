@@ -246,7 +246,7 @@ body.sidebar-expanded .content {
 }
 
 .btn-icon.active {
-    background: rgba(139, 92, 246, 0.2);
+    background: rgba(var(--accent-primary-rgb, 14, 165, 233), 0.2);
     color: var(--accent-primary);
     border-color: var(--accent-primary);
 }
@@ -639,8 +639,8 @@ body.sidebar-expanded .content {
 }
 
 .quick-chip:hover {
-    background: rgba(139, 92, 246, 0.15);
-    border-color: rgba(139, 92, 246, 0.4);
+    background: rgba(var(--accent-primary-rgb, 14, 165, 233), 0.15);
+    border-color: rgba(var(--accent-primary-rgb, 14, 165, 233), 0.4);
     color: var(--accent-primary);
 }
 

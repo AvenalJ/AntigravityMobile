@@ -17,7 +17,9 @@ let lastNotifState = { inputNeeded: false, error: false, dialogError: false };
 let lastHtmlForNotif = '';
 let unchangedCount = 0;
 let agentWasActive = false;
-let recentlyClickedXpaths = new Set();
+// Maps xpath → timestamp of click; entries expire after CLICK_EXPIRY_MS
+const recentlyClickedXpaths = new Map();
+const CLICK_EXPIRY_MS = 10000;
 let autoAcceptCallback = null;
 let debugCallback = null;
 let errorCallback = null;
@@ -569,12 +571,18 @@ function checkAndNotify(html) {
         // Find all accept buttons (there may be multiple for simultaneous commands)
         const acceptBtns = safeButtons.filter(b => acceptPatterns.test(b.label));
 
+        // Expire stale entries on every pass
+        const now = Date.now();
+        for (const [xpath, ts] of recentlyClickedXpaths) {
+            if (now - ts > CLICK_EXPIRY_MS) recentlyClickedXpaths.delete(xpath);
+        }
+
         for (const acceptBtn of acceptBtns) {
             if (recentlyClickedXpaths.has(acceptBtn.xpath)) {
                 if (debugCallback) debugCallback(`Skip: already clicked "${acceptBtn.label}"`);
                 continue;
             }
-            recentlyClickedXpaths.add(acceptBtn.xpath);
+            recentlyClickedXpaths.set(acceptBtn.xpath, Date.now());
             if (debugCallback) debugCallback(`Auto-clicking: "${acceptBtn.label}"`);
 
             // Use increasing delays for simultaneous buttons to avoid race conditions
@@ -586,12 +594,12 @@ function checkAndNotify(html) {
                         if (autoAcceptCallback) autoAcceptCallback(acceptBtn.label);
                     } else {
                         if (debugCallback) debugCallback(`Click failed: ${result?.error || 'unknown'}`);
+                        recentlyClickedXpaths.delete(acceptBtn.xpath);
                     }
                 } catch (e) {
                     if (debugCallback) debugCallback(`Click error: ${e.message}`);
+                    recentlyClickedXpaths.delete(acceptBtn.xpath);
                 }
-                // Clean up after 10 seconds so future same buttons can be clicked
-                setTimeout(() => recentlyClickedXpaths.delete(acceptBtn.xpath), 10000);
             }, delay);
         }
 

@@ -135,41 +135,8 @@ async function promptForAuth() {
         }
     }
 
-    // Skip prompt if not running in an interactive terminal
-    if (!process.stdin.isTTY) {
-        console.log('ℹ️ Non-interactive mode - auth disabled (set MOBILE_PIN env to enable)');
-        return;
-    }
-
-    const rl = createInterface({
-        input: process.stdin,
-        output: process.stdout
-    });
-
-    const question = (q) => new Promise(resolve => rl.question(q, resolve));
-
-    console.log('\n' + '═'.repeat(50));
-    console.log('🔐 Authentication Setup');
-    console.log('═'.repeat(50));
-
-    const enableAuth = await question('Enable PIN authentication? (y/N): ');
-
-    if (enableAuth.toLowerCase() === 'y') {
-        const pin = await question('Enter a 4-6 digit PIN: ');
-
-        if (pin.length >= 4 && pin.length <= 6 && /^\d+$/.test(pin)) {
-            authEnabled = true;
-            authPinHash = hashPin(pin);
-            console.log('✅ Authentication enabled! PIN set successfully.');
-        } else {
-            console.log('⚠️ Invalid PIN (must be 4-6 digits). Continuing without auth.');
-        }
-    } else {
-        console.log('ℹ️ Continuing without authentication.');
-    }
-
-    console.log('═'.repeat(50) + '\n');
-    rl.close();
+    // Default to no authentication for local home network
+    console.log('ℹ️ Running on local home network - auth disabled.');
 }
 
 // Ensure directories exist
@@ -480,6 +447,34 @@ function buildInlinedHtml() {
 
 // Build on startup
 buildInlinedHtml();
+
+// Watch public/css and public/js directories — rebuild cache on any file change
+(function watchPublicFiles() {
+    const publicDir = join(PROJECT_ROOT, 'public');
+    let rebuildTimer = null;
+    const scheduleRebuild = () => {
+        if (rebuildTimer) clearTimeout(rebuildTimer);
+        rebuildTimer = setTimeout(() => {
+            console.log('📄 Public files changed — rebuilding inlined HTML...');
+            buildInlinedHtml();
+            rebuildTimer = null;
+        }, 300);
+    };
+    for (const subdir of ['css', 'js']) {
+        const dir = join(publicDir, subdir);
+        if (existsSync(dir)) {
+            try {
+                watch(dir, { persistent: false }, scheduleRebuild);
+            } catch (e) {
+                console.warn(`⚠️ Could not watch ${subdir}: ${e.message}`);
+            }
+        }
+    }
+    // Also watch index.html itself
+    try {
+        watch(join(publicDir, 'index.html'), { persistent: false }, scheduleRebuild);
+    } catch (e) { }
+})();
 
 // Serve the inlined HTML for the root page
 app.get('/', (req, res) => {
@@ -1219,15 +1214,6 @@ app.delete('/api/admin/screenshots', localhostOnly, (req, res) => {
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Health check endpoint (before auth middleware - allows launcher to verify server is running)
-app.get('/api/status', (req, res) => {
-    res.json({
-        status: 'ok',
-        authEnabled,
-        uptime: process.uptime()
-    });
-});
-
 // Auth middleware - protect all other API routes
 app.use('/api', (req, res, next) => {
     // Skip auth check for auth and admin endpoints
@@ -1266,6 +1252,22 @@ app.get('/api/cdp/targets', async (req, res) => {
     try {
         const targets = await CDP.getTargets();
         res.json({ targets });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Set preferred CDP target workspace
+app.post('/api/cdp/workspace', express.json(), async (req, res) => {
+    try {
+        const { workspace } = req.body;
+        if (workspace === undefined) return res.status(400).json({ error: 'Workspace is required' });
+        
+        // Update both the in-memory CDP preference and the persistent config
+        CDP.setPreferredWorkspace(workspace || null);
+        Config.updateConfig('server.targetWorkspace', workspace || null);
+        
+        res.json({ success: true, workspace });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
@@ -1362,20 +1364,6 @@ app.post('/api/cdp/focus', async (req, res) => {
         res.status(500).json({ error: e.message });
     }
 });
-
-// Click an element in the IDE by XPath (forwarded from mobile)
-app.post('/api/cdp/click', async (req, res) => {
-    try {
-        const { xpath, text } = req.body;
-        if (!xpath) return res.status(400).json({ error: 'xpath required' });
-
-        const result = await CDP.clickElementByXPath(xpath);
-        res.json(result);
-    } catch (e) {
-        res.status(500).json({ success: false, error: e.message });
-    }
-});
-
 
 // Get live chat messages from IDE
 app.get('/api/cdp/chat', async (req, res) => {
@@ -1735,8 +1723,8 @@ app.get('/api/files', (req, res) => {
         const isAtFilesystemRoot = parent === fullPath || (isWindows && fullPath.match(/^[A-Z]:\\?$/i));
         const isAtRoot = isAtWorkspaceRoot || isAtFilesystemRoot;
 
-        // Auto-start watching this folder for changes
-        startWatching(fullPath);
+        // Only restart watcher if we navigated to a different folder
+        if (fullPath !== watchedPath) startWatching(fullPath);
 
         res.json({
             path: fullPath,
@@ -1963,18 +1951,27 @@ app.get('/api/status', async (req, res) => {
 
     res.json({
         ok: true,
+        status: 'ok',
+        authEnabled,
+        uptime: process.uptime(),
         clients: clients.size,
         inbox_count: inbox.length,
         message_count: messages.length,
-        cdp: cdpStatus
+        cdp: {
+            ...cdpStatus,
+            targetWorkspace: Config.getConfig('server.targetWorkspace') || null
+        }
     });
 });
 
 // ============================================================================
-// WebSocket
+// WebSocket — with ping/pong heartbeat to drop dead clients
 // ============================================================================
+const WS_PING_INTERVAL_MS = 25000;
+
 wss.on('connection', (ws) => {
     clients.add(ws);
+    ws.isAlive = true;
     console.log(`🔌 Client connected. Total: ${clients.size}`);
 
     // Send history
@@ -1983,6 +1980,8 @@ wss.on('connection', (ws) => {
         data: { messages: messages.slice(-50) },
         ts: new Date().toISOString()
     }));
+
+    ws.on('pong', () => { ws.isAlive = true; });
 
     // Handle messages from mobile
     ws.on('message', async (data) => {
@@ -2007,7 +2006,25 @@ wss.on('connection', (ws) => {
         clients.delete(ws);
         console.log(`🔌 Client disconnected. Total: ${clients.size}`);
     });
+
+    ws.on('error', () => {
+        clients.delete(ws);
+        ws.terminate();
+    });
 });
+
+// Ping all clients every 25s; drop any that haven't responded
+const wsPingTimer = setInterval(() => {
+    for (const ws of clients) {
+        if (!ws.isAlive) {
+            clients.delete(ws);
+            ws.terminate();
+            continue;
+        }
+        ws.isAlive = false;
+        ws.ping();
+    }
+}, WS_PING_INTERVAL_MS);
 
 // ============================================================================
 // Start
