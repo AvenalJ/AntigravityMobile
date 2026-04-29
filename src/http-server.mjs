@@ -185,11 +185,10 @@ async function startWorkspacePolling() {
 
             if (!detectedPath) {
                 consecutiveFailures++;
-                // Don't log every failure, only occasional ones
-                if (consecutiveFailures <= 3 || consecutiveFailures % 10 === 0) {
+                // Log only on first failure, then every 20 (5-minute cadence at 15s interval)
+                if (consecutiveFailures === 1 || consecutiveFailures % 20 === 0) {
                     console.log(`[Workspace Poll] No path detected (${consecutiveFailures} consecutive failures)`);
                 }
-                // IMPORTANT: Don't revert to default - keep last valid path
                 return;
             }
 
@@ -198,8 +197,6 @@ async function startWorkspacePolling() {
 
             // Normalize path: replace double backslashes with single
             detectedPath = detectedPath.replace(/\\\\/g, '\\');
-
-            console.log(`[Workspace Poll] Detected: "${detectedPath}" | Current: "${workspacePath}" | Equal: ${pathEquals(detectedPath, workspacePath)}`);
 
             // Update last valid path
             lastValidWorkspacePath = detectedPath;
@@ -210,7 +207,6 @@ async function startWorkspacePolling() {
                 Supervisor.setProjectRoot(workspacePath);
                 console.log(`📂 Workspace changed: ${oldPath} → ${workspacePath}`);
 
-                // Broadcast to all connected clients
                 broadcast('workspace_changed', {
                     path: workspacePath,
                     projectName: basename(workspacePath)
@@ -218,18 +214,17 @@ async function startWorkspacePolling() {
             }
         } catch (e) {
             consecutiveFailures++;
-            if (consecutiveFailures <= 3 || consecutiveFailures % 10 === 0) {
+            if (consecutiveFailures === 1 || consecutiveFailures % 20 === 0) {
                 console.log(`[Workspace Poll] Error (${consecutiveFailures}):`, e.message);
             }
-            // IMPORTANT: Don't revert to default on error - keep current path
         }
     };
 
     // Initial check
     await poll();
 
-    // Poll every 5 seconds
-    workspacePollingInterval = setInterval(poll, 5000);
+    // Poll every 15 seconds — workspace changes infrequently, no need for 5s
+    workspacePollingInterval = setInterval(poll, 15000);
 }
 
 function stopWorkspacePolling() {
@@ -250,6 +245,22 @@ const SCREENSHOTS_DIR = join(PROJECT_ROOT, 'data', 'screenshots');
 if (!existsSync(SCREENSHOTS_DIR)) mkdirSync(SCREENSHOTS_DIR, { recursive: true });
 let screenshotInterval = null;
 
+const MAX_SCREENSHOTS = 200;
+
+function pruneScreenshots() {
+    try {
+        const files = readdirSync(SCREENSHOTS_DIR)
+            .filter(f => f.endsWith('.jpg'))
+            .sort(); // ascending = oldest first
+        if (files.length > MAX_SCREENSHOTS) {
+            const toDelete = files.slice(0, files.length - MAX_SCREENSHOTS);
+            for (const f of toDelete) {
+                try { unlinkSync(join(SCREENSHOTS_DIR, f)); } catch (e) { }
+            }
+        }
+    } catch (e) { }
+}
+
 function startScreenshotScheduler() {
     if (screenshotInterval) return;
     if (!Config.getConfig('scheduledScreenshots.enabled')) return;
@@ -264,6 +275,7 @@ function startScreenshotScheduler() {
             const file = join(SCREENSHOTS_DIR, `screenshot-${ts}.jpg`);
             writeFileSync(file, Buffer.from(base64, 'base64'));
             trackMetric('screenshots');
+            pruneScreenshots();
         } catch (e) { }
     }, 30000);
 }
@@ -317,6 +329,12 @@ function startWatching(folderPath) {
             }, 300);
         });
 
+        activeWatcher.on('error', (e) => {
+            console.log(`⚠️ Watch error: ${e.message}`);
+            activeWatcher = null;
+            watchedPath = null;
+        });
+
         console.log(`📁 Watching: ${folderPath}`);
     } catch (e) {
         console.log(`⚠️ Watch error: ${e.message}`);
@@ -352,9 +370,11 @@ function loadMessages() {
     }
 }
 
+const MAX_MESSAGES = 500;
+const MAX_INBOX = 200;
+
 function saveMessages() {
     try {
-        if (messages.length > 500) messages = messages.slice(-500);
         writeFileSync(MESSAGES_FILE, JSON.stringify(messages, null, 2));
     } catch (e) { }
 }
@@ -507,13 +527,17 @@ const LOGIN_MAX_ATTEMPTS = 5;
 const LOGIN_LOCKOUT_MS = 15 * 60 * 1000; // 15 minutes
 const loginAttempts = new Map();
 
+function pruneLoginAttempts() {
+    const cutoff = Date.now() - LOGIN_LOCKOUT_MS;
+    for (const [ip, entry] of loginAttempts) {
+        if (entry.firstAttempt < cutoff) loginAttempts.delete(ip);
+    }
+}
+
 function checkLoginRateLimit(ip) {
+    pruneLoginAttempts();
     const entry = loginAttempts.get(ip);
     if (!entry) return { allowed: true };
-    if (Date.now() - entry.firstAttempt > LOGIN_LOCKOUT_MS) {
-        loginAttempts.delete(ip);
-        return { allowed: true };
-    }
     if (entry.count >= LOGIN_MAX_ATTEMPTS) {
         const remainingSec = Math.ceil((LOGIN_LOCKOUT_MS - (Date.now() - entry.firstAttempt)) / 1000);
         return { allowed: false, remainingSec };
@@ -534,15 +558,8 @@ function clearLoginAttempts(ip) {
     loginAttempts.delete(ip);
 }
 
-// Clean up stale rate-limit entries every 5 minutes
-setInterval(() => {
-    const now = Date.now();
-    for (const [ip, entry] of loginAttempts) {
-        if (now - entry.firstAttempt > LOGIN_LOCKOUT_MS * 2) {
-            loginAttempts.delete(ip);
-        }
-    }
-}, 300000);
+// Prune stale rate-limit entries every 5 minutes
+setInterval(pruneLoginAttempts, 300000);
 
 // ============================================================================
 // Auth Endpoints (before auth middleware)
@@ -1059,10 +1076,15 @@ app.post('/api/supervisor/chat/stream', async (req, res) => {
         'X-Accel-Buffering': 'no'
     });
 
+    let aborted = false;
+    req.on('close', () => { aborted = true; });
+
     try {
         const result = await Supervisor.chatWithUserStream(message.trim(), (token) => {
-            res.write(`data: ${JSON.stringify({ token })}\n\n`);
+            if (!aborted) res.write(`data: ${JSON.stringify({ token })}\n\n`);
         });
+
+        if (aborted) { res.end(); return; }
 
         if (result.success) {
             // Process [READ:path] and [LIST:path] tags in the final response
@@ -1079,7 +1101,7 @@ app.post('/api/supervisor/chat/stream', async (req, res) => {
             res.write(`data: ${JSON.stringify({ error: result.error })}\n\n`);
         }
     } catch (e) {
-        res.write(`data: ${JSON.stringify({ error: e.message })}\n\n`);
+        if (!aborted) res.write(`data: ${JSON.stringify({ error: e.message })}\n\n`);
     }
     res.end();
 });
@@ -1346,6 +1368,7 @@ app.post('/api/cdp/inject', async (req, res) => {
             content: text,
             timestamp: new Date().toISOString()
         });
+        if (messages.length > MAX_MESSAGES) messages = messages.slice(-MAX_MESSAGES);
         saveMessages();
         broadcast('mobile_command', { text, submitted: !!submit });
 
@@ -1502,18 +1525,15 @@ app.get('/api/models', async (req, res) => {
 app.post('/api/models/set', async (req, res) => {
     try {
         const { model } = req.body;
-        console.log('[SetModel] Request received for model:', model);
         if (!model) {
             return res.status(400).json({ error: 'Model name required' });
         }
         const result = await CDP.setModel(model);
-        console.log('[SetModel] CDP result:', JSON.stringify(result));
         if (result.success) {
             broadcast('model_changed', { model: result.selected });
         }
         res.json(result);
     } catch (e) {
-        console.log('[SetModel] Error:', e.message);
         res.status(500).json({ success: false, error: e.message });
     }
 });
@@ -1573,15 +1593,12 @@ app.post('/api/approvals/respond', async (req, res) => {
         if (!action || !['approve', 'reject'].includes(action)) {
             return res.status(400).json({ error: 'Action must be "approve" or "reject"' });
         }
-        console.log('[Approvals] Responding with:', action);
         const result = await CDP.respondToApproval(action);
-        console.log('[Approvals] Result:', JSON.stringify(result));
         if (result.success) {
             broadcast('approval_responded', { action: result.action });
         }
         res.json(result);
     } catch (e) {
-        console.log('[Approvals] Error:', e.message);
         res.status(500).json({ success: false, error: e.message });
     }
 });
@@ -1896,6 +1913,7 @@ app.post('/api/broadcast', (req, res) => {
     };
 
     messages.push(msg);
+    if (messages.length > MAX_MESSAGES) messages = messages.slice(-MAX_MESSAGES);
     saveMessages();
     broadcast('message', msg);
 
@@ -1920,6 +1938,7 @@ app.post('/api/inbox', (req, res) => {
         from: 'mobile',
         timestamp: new Date().toISOString()
     });
+    if (inbox.length > MAX_INBOX) inbox = inbox.slice(-MAX_INBOX);
 
     broadcast('inbox_updated', { count: inbox.length });
     console.log(`📥 [INBOX] ${message.substring(0, 50)}...`);
@@ -2180,5 +2199,51 @@ async function startServer() {
         }
     }
 }
+
+// ============================================================================
+// Graceful Shutdown
+// ============================================================================
+function gracefulShutdown(signal) {
+    console.log(`\n${signal} received — shutting down gracefully...`);
+
+    // Stop tunnel
+    try { Tunnel.stopTunnel(); } catch (e) { }
+
+    // Stop workspace polling
+    stopWorkspacePolling();
+
+    // Stop screenshot scheduler
+    stopScreenshotScheduler();
+
+    // Stop file watcher
+    stopWatching();
+
+    // Stop chat stream
+    try { ChatStream.stopChatStream(); } catch (e) { }
+
+    // Stop supervisor
+    try { Supervisor.stop(); } catch (e) { }
+
+    // Stop WS ping timer
+    clearInterval(wsPingTimer);
+
+    // Close all WebSocket connections
+    for (const ws of clients) {
+        try { ws.terminate(); } catch (e) { }
+    }
+    clients.clear();
+
+    // Close HTTP server
+    httpServer.close(() => {
+        console.log('Server closed.');
+        process.exit(0);
+    });
+
+    // Force-exit after 5s if clean close hangs
+    setTimeout(() => process.exit(1), 5000).unref();
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 startServer();

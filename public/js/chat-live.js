@@ -61,7 +61,12 @@
             document.getElementById('modeDropdown').style.display = 'none';
         }
 
+        let modelChanging = false;
+        let modeChanging = false;
+
         async function selectModel(modelName) {
+            if (modelChanging) return;
+            modelChanging = true;
             closeAllDropdowns();
             document.getElementById('currentModelLabel').textContent = 'Changing...';
 
@@ -84,10 +89,14 @@
             } catch (e) {
                 document.getElementById('currentModelLabel').textContent = currentModel;
                 showToast('Network error', 'error');
+            } finally {
+                modelChanging = false;
             }
         }
 
         async function selectMode(modeName) {
+            if (modeChanging) return;
+            modeChanging = true;
             closeAllDropdowns();
             document.getElementById('currentModeLabel').textContent = '...';
 
@@ -110,6 +119,8 @@
             } catch (e) {
                 document.getElementById('currentModeLabel').textContent = currentMode;
                 showToast('Network error', 'error');
+            } finally {
+                modeChanging = false;
             }
         }
 
@@ -212,7 +223,10 @@
             const container = document.getElementById('toastContainer');
             const toast = document.createElement('div');
             toast.className = `toast ${type}`;
-            toast.innerHTML = `<span>${type === 'success' ? '✓' : '✕'}</span> ${message}`;
+            const icon = document.createElement('span');
+            icon.textContent = type === 'success' ? '✓' : '✕';
+            toast.appendChild(icon);
+            toast.appendChild(document.createTextNode(' ' + message));
             container.appendChild(toast);
             setTimeout(() => toast.remove(), 2500);
         }

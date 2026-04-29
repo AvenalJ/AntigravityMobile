@@ -133,13 +133,32 @@ export async function connectToTarget(target) {
     if (!wsUrl) throw new Error('No WebSocket URL for target');
 
     return new Promise((resolve, reject) => {
-        // Dynamic import for WebSocket (works in Node)
         import('ws').then(({ default: WebSocket }) => {
             const ws = new WebSocket(wsUrl);
             let messageId = 1;
             const pending = new Map();
+            let settled = false;
+
+            const connectionTimeout = setTimeout(() => {
+                if (!settled) {
+                    settled = true;
+                    rejectAllPending(new Error('Connection timeout'));
+                    ws.terminate();
+                    reject(new Error('CDP connection timeout'));
+                }
+            }, 8000);
+
+            function rejectAllPending(err) {
+                for (const { reject: rej } of pending.values()) {
+                    try { rej(err); } catch (e) { }
+                }
+                pending.clear();
+            }
 
             ws.on('open', () => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(connectionTimeout);
                 const client = {
                     send: (method, params = {}) => {
                         return new Promise((res, rej) => {
@@ -155,16 +174,29 @@ export async function connectToTarget(target) {
             });
 
             ws.on('message', (data) => {
-                const msg = JSON.parse(data.toString());
-                if (msg.id && pending.has(msg.id)) {
-                    const { resolve, reject } = pending.get(msg.id);
-                    pending.delete(msg.id);
-                    if (msg.error) reject(new Error(msg.error.message));
-                    else resolve(msg.result);
+                try {
+                    const msg = JSON.parse(data.toString());
+                    if (msg.id && pending.has(msg.id)) {
+                        const { resolve, reject } = pending.get(msg.id);
+                        pending.delete(msg.id);
+                        if (msg.error) reject(new Error(msg.error.message));
+                        else resolve(msg.result);
+                    }
+                } catch (e) { }
+            });
+
+            ws.on('error', (err) => {
+                clearTimeout(connectionTimeout);
+                rejectAllPending(err);
+                if (!settled) {
+                    settled = true;
+                    reject(err);
                 }
             });
 
-            ws.on('error', reject);
+            ws.on('close', () => {
+                rejectAllPending(new Error('WebSocket closed'));
+            });
         }).catch(reject);
     });
 }
@@ -603,17 +635,11 @@ export async function getConversationText() {
  */
 export async function getWorkspacePath() {
     const target = await findEditorTarget();
-    if (!target) {
-        console.log('[CDP getWorkspacePath] No editor target found');
-        return null;
-    }
-
-    console.log(`[CDP getWorkspacePath] Target title: "${target.title}"`);
+    if (!target) return null;
 
     // Extract project name from title: "ProjectName — filename" or "ProjectName - Antigravity - filename"
     const titleMatch = target.title.match(/^([^\u2014-]+)\s*[\u2014-]/);
     const projectName = titleMatch ? titleMatch[1].trim() : (preferredWorkspace || null);
-    console.log(`[CDP getWorkspacePath] Extracted project name: "${projectName}"`);
 
     const client = await connectToTarget(target);
 
@@ -691,10 +717,8 @@ export async function getWorkspacePath() {
         });
 
         const data = result.result?.value;
-        console.log(`[CDP getWorkspacePath] DOM result:`, JSON.stringify(data));
 
         if (!data?.path) {
-            console.log(`[CDP getWorkspacePath] No path: ${data?.error || 'unknown'}`);
             return null;
         }
 
@@ -706,22 +730,18 @@ export async function getWorkspacePath() {
         if (projectName) {
             for (let i = 0; i < pathParts.length; i++) {
                 if (pathParts[i].toLowerCase() === projectName.toLowerCase()) {
-                    const ws = isWindows
+                    return isWindows
                         ? pathParts[0] + '\\' + pathParts.slice(1, i + 1).join('\\')
                         : '/' + pathParts.slice(0, i + 1).join('/');
-                    console.log(`[CDP getWorkspacePath] Found: "${ws}"`);
-                    return ws;
                 }
             }
         }
 
-        // Fallback
+        // Fallback: parent directory of the detected file
         const parentParts = pathParts.slice(0, -1);
-        const fallback = isWindows
+        return isWindows
             ? parentParts[0] + '\\' + parentParts.slice(1).join('\\')
             : '/' + parentParts.join('/');
-        console.log(`[CDP getWorkspacePath] Fallback: "${fallback}"`);
-        return fallback;
 
     } finally {
         client.close();

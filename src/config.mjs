@@ -156,12 +156,32 @@ export function updateConfig(path, value) {
 }
 
 /**
+ * Validate a partial config update — reject null/wrong-type values for critical keys.
+ * Returns a sanitized copy of partial with invalid entries removed.
+ */
+function sanitizePartial(partial) {
+    if (!partial || typeof partial !== 'object' || Array.isArray(partial)) return {};
+    const safe = {};
+    for (const key of Object.keys(partial)) {
+        const val = partial[key];
+        // Reject null for top-level object sections (would destroy structure)
+        if (val === null && typeof DEFAULT_CONFIG[key] === 'object') continue;
+        // Reject wrong type for array sections
+        if (Array.isArray(DEFAULT_CONFIG[key]) && !Array.isArray(val) && val !== undefined) {
+            if (typeof val !== 'object' || val === null) continue;
+        }
+        safe[key] = val;
+    }
+    return safe;
+}
+
+/**
  * Bulk update config (partial merge) and save
  * @param {object} partial - Partial config object to merge
  */
 export function mergeConfig(partial) {
     if (!config) loadConfig();
-    config = deepMerge(config, partial);
+    config = deepMerge(config, sanitizePartial(partial));
     saveConfig();
     return config;
 }

@@ -20,6 +20,9 @@ let agentWasActive = false;
 // Maps xpath → timestamp of click; entries expire after CLICK_EXPIRY_MS
 const recentlyClickedXpaths = new Map();
 const CLICK_EXPIRY_MS = 10000;
+
+// Compiled once — reused every poll cycle
+const BTN_REGEX = /data-xpath="([^"]+)"[^>]*>([\s\S]{1,200}?)<\/(?:button|div|span|a|summary)\b/gi;
 let autoAcceptCallback = null;
 let debugCallback = null;
 let errorCallback = null;
@@ -547,9 +550,9 @@ function checkAndNotify(html) {
     const hasButtons = html.includes('data-xpath');
     let buttons = [];
     if (hasButtons) {
-        const btnRegex = /data-xpath="([^"]+)"[^>]*>([\s\S]{1,200}?)<\/(?:button|div|span|a|summary)\b/gi;
+        BTN_REGEX.lastIndex = 0;
         let m;
-        while ((m = btnRegex.exec(html)) !== null) {
+        while ((m = BTN_REGEX.exec(html)) !== null) {
             const label = m[2].replace(/<[^>]*>/g, '').trim();
             const xpath = m[1];
             if (label && xpath && label.length <= 60 && !label.includes('\n')) buttons.push({ label, xpath });
