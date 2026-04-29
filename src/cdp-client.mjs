@@ -20,7 +20,7 @@ async function discoverPort() {
 
     for (const port of CDP_PORTS) {
         try {
-            const res = await fetch(`http://localhost:${port}/json/version`, {
+            const res = await fetch(`http://127.0.0.1:${port}/json/version`, {
                 signal: AbortSignal.timeout(1500)
             });
             if (res.ok) {
@@ -34,7 +34,7 @@ async function discoverPort() {
 }
 
 function getCdpUrl() {
-    return `http://localhost:${cdpPort}`;
+    return `http://127.0.0.1:${cdpPort}`;
 }
 
 /**

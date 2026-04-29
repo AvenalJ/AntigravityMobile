@@ -46,6 +46,31 @@
         <!-- Chat View (Main) -->
         <!-- Dynamic IDE styles injected here -->
         <style id="cascadeStyles"></style>
+        <style>
+            .workspace-label {
+                font-size: 11px;
+                color: var(--accent-primary);
+                opacity: 0.8;
+                font-weight: 500;
+                margin-left: 8px;
+                padding: 2px 6px;
+                background: rgba(var(--accent-primary-rgb), 0.1);
+                border-radius: 4px;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                max-width: 120px;
+                display: none; /* Hidden if empty */
+            }
+            .sidebar-logo {
+                display: flex;
+                align-items: center;
+                gap: 4px;
+            }
+            #workspaceLabel:not(:empty) {
+                display: inline-block;
+            }
+        </style>
 
         <div class="chat-container">
             <!-- Live cascade content will be injected here -->
@@ -129,6 +154,7 @@
             </button>
             <div class="sidebar-logo">
                 <span class="logo-text">Antigravity</span>
+                <span id="workspaceLabel" class="workspace-label"></span>
             </div>
         </div>
         <div class="sidebar-nav">
@@ -268,6 +294,15 @@
             <div class="settings-section">
                 <div class="settings-title">Connection</div>
                 <div class="card">
+                    <div class="setting-row">
+                        <div class="setting-label">
+                            <h4>Workspace Target</h4>
+                            <p>Select which IDE window to control</p>
+                        </div>
+                        <select id="workspaceSelect" class="setting-value" style="border: none; cursor: pointer; max-width: 150px; text-overflow: ellipsis;" onchange="setWorkspaceTarget(this.value)">
+                            <option value="">Auto-detect</option>
+                        </select>
+                    </div>
                     <div class="setting-row">
                         <div class="setting-label">
                             <h4>CDP Protocol</h4>

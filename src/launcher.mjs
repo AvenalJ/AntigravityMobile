@@ -17,7 +17,7 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const CDP_PORT = 9222;
+const CDP_PORT = 9333;
 const HTTP_PORT = 3001;
 
 // ============================================================================
@@ -140,7 +140,7 @@ async function waitForServer(port, timeout = 10000) {
     const start = Date.now();
     while (Date.now() - start < timeout) {
         try {
-            const res = await fetch(`http://localhost:${port}/api/status`);
+            const res = await fetch(`http://127.0.0.1:${port}/api/status`);
             if (res.ok) return true;
         } catch { }
         await new Promise(r => setTimeout(r, 500));
@@ -152,7 +152,7 @@ async function waitForCDP(port, timeout = 10000) {
     const start = Date.now();
     while (Date.now() - start < timeout) {
         try {
-            const res = await fetch(`http://localhost:${port}/json/version`);
+            const res = await fetch(`http://127.0.0.1:${port}/json/version`);
             if (res.ok) return true;
         } catch { }
         await new Promise(r => setTimeout(r, 500));
@@ -216,8 +216,8 @@ async function main() {
     // ========================================================================
     logSection('🔍 Finding Antigravity');
 
-    const antigravityPath = await findAntigravityPath();
-
+    let antigravityPath = await findAntigravityPath();
+    //antigravityPath = `XDG_RUNTIME_DIR=/run/user/1002 ${antigravityPath}`;
     if (!antigravityPath) {
         log('❌', 'Could not find Antigravity installation!');
         console.log('\nPlease install Antigravity or specify path:');
@@ -294,7 +294,7 @@ async function main() {
 
     // Check CDP
     try {
-        const res = await fetch(`http://localhost:${CDP_PORT}/json/version`);
+        const res = await fetch(`http://127.0.0.1:${CDP_PORT}/json/version`);
         const data = await res.json();
         log('✅', `CDP: ${data.Browser || 'Active'}`);
     } catch {
@@ -303,7 +303,7 @@ async function main() {
 
     // Check HTTP
     try {
-        const res = await fetch(`http://localhost:${HTTP_PORT}/api/status`);
+        const res = await fetch(`http://127.0.0.1:${HTTP_PORT}/api/status`);
         if (res.ok) log('✅', `HTTP Server: Running`);
         else throw new Error();
     } catch {
@@ -325,10 +325,10 @@ async function main() {
 ║     http://${mainIP}:${HTTP_PORT}                            ║
 ║                                                        ║
 ║  🖥️  Local Access:                                     ║
-║     http://localhost:${HTTP_PORT}                             ║
+║     http://127.0.0.1:${HTTP_PORT}                             ║
 ║                                                        ║
 ║  ⚙️  Admin Panel:                                      ║
-║     http://localhost:${HTTP_PORT}/admin                       ║
+║     http://127.0.0.1:${HTTP_PORT}/admin                       ║
 ║                                                        ║
 ╚════════════════════════════════════════════════════════╝
     `);
@@ -341,7 +341,7 @@ async function main() {
     console.log('\n✅ You can close this window - servers will keep running.\n');
 
     // Auto-open admin panel in default browser
-    const adminUrl = `http://localhost:${HTTP_PORT}/admin`;
+    const adminUrl = `http://127.0.0.1:${HTTP_PORT}/admin`;
     try {
         const openCmd = os === 'win32' ? `start "" "${adminUrl}"`
             : os === 'darwin' ? `open "${adminUrl}"`

@@ -22,6 +22,78 @@
             // Also load quota when settings panel opens
             loadQuota();
             loadMobileCommands();
+            loadWorkspaceTargets();
+        }
+
+        // ====================================================================
+        // Workspace Target Selection
+        // ====================================================================
+        async function loadWorkspaceTargets() {
+            try {
+                const res = await authFetch('/api/cdp/targets');
+                if (!res.ok) return;
+                const data = await res.json();
+                
+                const select = document.getElementById('workspaceSelect');
+                if (!select) return;
+                
+                // Clear existing options except Auto-detect
+                while (select.options.length > 1) {
+                    select.remove(1);
+                }
+                
+                // Extract unique project names from targets
+                const workspaces = new Set();
+                const pages = (data.targets || []).filter(t => t.type === 'page' && !t.url.includes('devtools'));
+                
+                for (const page of pages) {
+                    // Match "ProjectName — filename" or "ProjectName - Antigravity - filename"
+                    const match = page.title.match(/^([^\u2014-]+)\s*[\u2014-]/);
+                    if (match && match[1]) {
+                        workspaces.add(match[1].trim());
+                    }
+                }
+                
+                // Add to dropdown
+                for (const ws of workspaces) {
+                    const option = document.createElement('option');
+                    option.value = ws;
+                    option.textContent = ws;
+                    select.appendChild(option);
+                }
+                
+                // Select the current target if set
+                try {
+                    const statusRes = await authFetch('/api/status');
+                    const statusData = await statusRes.json();
+                    if (statusData.cdp && statusData.cdp.targetWorkspace) {
+                        select.value = statusData.cdp.targetWorkspace;
+                    }
+                } catch(e) {}
+                
+            } catch(e) {
+                console.error('Failed to load workspace targets:', e);
+            }
+        }
+
+        async function setWorkspaceTarget(workspace) {
+            try {
+                const res = await authFetch('/api/cdp/workspace', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ workspace: workspace || null })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast('Workspace target updated', 'success');
+                    // Force refresh to grab new workspace context
+                    if (typeof fetchLiveChat === 'function') fetchLiveChat();
+                } else {
+                    showToast('Failed to update target', 'error');
+                }
+            } catch (e) {
+                showToast('Network error updating target', 'error');
+            }
         }
 
         // ====================================================================
