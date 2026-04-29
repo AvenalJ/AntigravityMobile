@@ -12,6 +12,11 @@ async function init() {
     refreshTaskQueue();
     loadAssistChatHistory();
     loadAssistStatusBadge();
+    
+    // Initialize Chat Live components
+    if (typeof initChatLive === 'function') {
+        initChatLive();
+    }
 }
 
 init();
