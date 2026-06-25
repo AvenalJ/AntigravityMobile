@@ -5,8 +5,18 @@
         async function loadModelsAndModes() {
             console.log('[Debug] loadModelsAndModes called');
             try {
-                const res = await authFetch('/api/models');
-                const data = await res.json();
+                // Fetch both models and quota
+                const [modelsRes, quotaRes] = await Promise.all([
+                    authFetch('/api/models'),
+                    authFetch('/api/quota').catch(() => null)
+                ]);
+                
+                const data = await modelsRes.json();
+                let quotaData = null;
+                if (quotaRes && quotaRes.ok) {
+                    quotaData = await quotaRes.json();
+                }
+
                 console.log('[Debug] Models API response:', data);
 
                 availableModels = data.models || [];
@@ -22,11 +32,26 @@
                 // Populate model list
                 const modelList = document.getElementById('modelList');
                 console.log('[Debug] modelList element:', modelList);
-                modelList.innerHTML = availableModels.map(model => `
-                        <div class="dropdown-item ${model === currentModel ? 'active' : ''}" onclick="selectModel('${escapeHtml(model)}')">
-                            ${escapeHtml(model)}
+                modelList.innerHTML = availableModels.map(model => {
+                    let quotaInfo = '';
+                    if (quotaData && quotaData.models) {
+                        const qModel = quotaData.models.find(q => q.name === model || q.name.includes(model) || model.includes(q.name));
+                        if (qModel) {
+                            const percent = Math.max(0, Math.min(100, qModel.remainingPercent || 0)).toFixed(0);
+                            let color = 'var(--success)';
+                            if (qModel.status === 'warning') color = 'var(--warning)';
+                            if (qModel.status === 'danger' || qModel.status === 'exhausted') color = 'var(--error)';
+                            quotaInfo = `<div style="font-size: 11px; color: ${color}; background: rgba(0,0,0,0.2); padding: 2px 6px; border-radius: 10px; margin-left: auto;">${percent}%</div>`;
+                        }
+                    }
+
+                    return `
+                        <div class="dropdown-item ${model === currentModel ? 'active' : ''}" onclick="selectModel('${escapeHtml(model)}')" style="display: flex; justify-content: flex-start; align-items: center; gap: 8px;">
+                            <span>${escapeHtml(model)}</span>
+                            ${quotaInfo}
                         </div>
-                    `).join('');
+                    `;
+                }).join('');
                 console.log('[Debug] Models loaded:', availableModels.length);
             } catch (e) {
                 console.log('[Debug] Failed to load models:', e);
