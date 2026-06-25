@@ -289,94 +289,268 @@
 
 
 
+        // Icon per agent-activity kind
+        const ACTIVITY_ICON = {
+            edit: '✏️', run: '⚡', thought: '💭', explore: '🔍', step: '•'
+        };
+
+        // Build the DOM for one message in the structured conversation model
+        function renderMessage(m) {
+            if (m.role === 'user') {
+                const el = document.createElement('div');
+                el.className = 'sc-msg sc-user';
+                el.innerHTML = `<div class="sc-bubble">${escapeHtml(m.text)}</div>`;
+                return el;
+            }
+
+            // agent
+            const el = document.createElement('div');
+            el.className = 'sc-msg sc-agent' + (m.working ? ' sc-working' : '');
+
+            let html = '';
+
+            // activity summary ("Worked for Xs") + step timeline (when expanded in IDE)
+            if (m.worked || (m.activity && m.activity.length)) {
+                html += `<div class="sc-activity">`;
+                if (m.worked) {
+                    html += `<div class="sc-worked">${m.working ? '<span class="sc-spinner"></span>' : '✓'} ${escapeHtml(m.worked)}</div>`;
+                }
+                if (m.activity && m.activity.length) {
+                    html += `<div class="sc-steps">` + m.activity.map(a =>
+                        `<div class="sc-step sc-step-${a.kind}"><span class="sc-step-ico">${ACTIVITY_ICON[a.kind] || '•'}</span>${escapeHtml(a.text)}</div>`
+                    ).join('') + `</div>`;
+                }
+                html += `</div>`;
+            }
+
+            // answer prose (already simplified to whitelisted tags on the server)
+            if (m.text) {
+                html += `<div class="sc-prose">${m.text}</div>`;
+            }
+
+            // change summary (files changed +adds/-dels)
+            if (m.changes) {
+                const add = m.changes.add ? `<span class="sc-add">+${escapeHtml(String(m.changes.add))}</span>` : '';
+                const del = m.changes.del ? `<span class="sc-del">−${escapeHtml(String(m.changes.del))}</span>` : '';
+                html += `<div class="sc-changes">📝 ${escapeHtml(m.changes.summary)} ${add} ${del}</div>`;
+            }
+
+            el.innerHTML = html;
+
+            // live action buttons (Run / Accept / Reject) forwarded to the IDE
+            if (m.actions && m.actions.length) {
+                const bar = document.createElement('div');
+                bar.className = 'sc-actions';
+                m.actions.forEach(a => {
+                    const btn = document.createElement('button');
+                    btn.className = 'sc-action sc-action-' + a.kind;
+                    btn.textContent = a.label;
+                    btn.addEventListener('click', () => forwardAction(a.xpath, a.label, btn));
+                    bar.appendChild(btn);
+                });
+                el.appendChild(bar);
+            }
+            return el;
+        }
+
+        // Forward an action-button tap to the real IDE via CDP click
+        async function forwardAction(xpath, label, btn) {
+            btn.disabled = true;
+            btn.style.opacity = '0.5';
+            try {
+                const res = await authFetch('/api/cdp/click', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ xpath, text: label })
+                });
+                const result = await res.json();
+                showToast(result.success ? `✓ ${label}` : (result.error || 'Click failed'), result.success ? 'success' : 'error');
+            } catch (e) {
+                showToast('Network error', 'error');
+            } finally {
+                setTimeout(() => { btn.disabled = false; btn.style.opacity = ''; }, 600);
+            }
+        }
+
+        // Render a pending multiple-choice prompt as tappable options + custom answer
+        function renderPrompt(p) {
+            const el = document.createElement('div');
+            el.className = 'sc-prompt';
+            let html = `<div class="sc-prompt-q">❓ ${escapeHtml(p.question || 'The agent is asking a question')}</div>`;
+            html += `<div class="sc-prompt-opts"></div>`;
+            if (p.otherXpath) {
+                html += `<div class="sc-prompt-other">
+                    <input type="text" class="sc-prompt-input" placeholder="Write your own answer…">
+                    <button class="sc-action sc-action-accept sc-prompt-send">Send</button>
+                </div>`;
+            }
+            if (p.skipXpath) html += `<button class="sc-prompt-skip">Skip</button>`;
+            el.innerHTML = html;
+
+            const optsBox = el.querySelector('.sc-prompt-opts');
+            (p.options || []).forEach(o => {
+                const b = document.createElement('button');
+                b.className = 'sc-action sc-prompt-opt';
+                b.textContent = o.label;
+                b.addEventListener('click', () => answerPrompt({ kind: 'option', optionXpath: o.xpath, submitXpath: p.submitXpath }, b, el));
+                optsBox.appendChild(b);
+            });
+
+            if (p.otherXpath) {
+                const input = el.querySelector('.sc-prompt-input');
+                const send = el.querySelector('.sc-prompt-send');
+                const doSend = () => {
+                    const text = input.value.trim();
+                    if (!text) return;
+                    answerPrompt({ kind: 'other', otherXpath: p.otherXpath, text, submitXpath: p.submitXpath }, send, el);
+                };
+                send.addEventListener('click', doSend);
+                input.addEventListener('keypress', e => { if (e.key === 'Enter') doSend(); });
+            }
+            if (p.skipXpath) {
+                el.querySelector('.sc-prompt-skip').addEventListener('click', (e) =>
+                    answerPrompt({ kind: 'skip', skipXpath: p.skipXpath }, e.target, el));
+            }
+            return el;
+        }
+
+        async function answerPrompt(payload, btn, card) {
+            card.querySelectorAll('button, input').forEach(b => b.disabled = true);
+            card.style.opacity = '0.6';
+            try {
+                const res = await authFetch('/api/chat/answer', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const result = await res.json();
+                if (result.success) {
+                    showToast('✓ Answer sent', 'success');
+                    lastCascadeHash = null;       // force re-render on next poll
+                    setTimeout(fetchLiveChat, 400);
+                } else {
+                    showToast(result.error || 'Failed to send', 'error');
+                    card.querySelectorAll('button, input').forEach(b => b.disabled = false);
+                    card.style.opacity = '';
+                }
+            } catch (e) {
+                showToast('Network error', 'error');
+                card.querySelectorAll('button, input').forEach(b => b.disabled = false);
+                card.style.opacity = '';
+            }
+        }
+
+        // ---- Artifact viewer (walkthroughs, reports, docs) ----------------
+        let artifactOverlayOpen = false;
+
+        function renderArtifactBanner(art) {
+            const el = document.createElement('div');
+            el.className = 'sc-artifact-banner';
+            el.innerHTML = `<span class="sc-art-ico">📄</span><span class="sc-art-title">${escapeHtml(art.title)}</span><span class="sc-art-open">View ▸</span>`;
+            el.addEventListener('click', () => openArtifactOverlay(art));
+            return el;
+        }
+
+        function openArtifactOverlay(art) {
+            artifactOverlayOpen = true;
+            let ov = document.getElementById('scArtifactOverlay');
+            if (!ov) {
+                ov = document.createElement('div');
+                ov.id = 'scArtifactOverlay';
+                ov.className = 'sc-art-overlay';
+                document.body.appendChild(ov);
+            }
+            ov.innerHTML = `
+                <div class="sc-art-head">
+                    <button class="sc-art-close" aria-label="Close">✕</button>
+                    <div class="sc-art-head-title">${escapeHtml(art.title)}</div>
+                    <div class="sc-art-nav">
+                        <button class="sc-art-prev" ${art.prevXpath ? '' : 'disabled'}>‹ Prev</button>
+                        <button class="sc-art-next" ${art.nextXpath ? '' : 'disabled'}>Next ›</button>
+                    </div>
+                </div>
+                <div class="sc-art-body sc-prose">${art.html}</div>`;
+            ov.style.display = 'flex';
+            ov.querySelector('.sc-art-close').onclick = closeArtifactOverlay;
+            const prev = ov.querySelector('.sc-art-prev');
+            const next = ov.querySelector('.sc-art-next');
+            if (art.prevXpath) prev.onclick = () => navArtifact(art.prevXpath);
+            if (art.nextXpath) next.onclick = () => navArtifact(art.nextXpath);
+        }
+
+        function closeArtifactOverlay() {
+            artifactOverlayOpen = false;
+            const ov = document.getElementById('scArtifactOverlay');
+            if (ov) ov.style.display = 'none';
+        }
+
+        async function navArtifact(xpath) {
+            try {
+                await authFetch('/api/cdp/click', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ xpath, text: 'artifact-nav' })
+                });
+                lastCascadeHash = null;            // force re-render to pull the new artifact
+                setTimeout(fetchLiveChat, 400);
+            } catch (e) { showToast('Network error', 'error'); }
+        }
+
         async function fetchLiveChat() {
             if (!chatPollingActive) return;
 
             try {
-                const res = await authFetch(`${serverUrl}/api/chat/snapshot`);
+                const res = await authFetch(`${serverUrl}/api/chat/structured`);
                 const data = await res.json();
+                const container = document.getElementById('cascade-container');
 
-                if (data.html) {
-                    // Simple hash check to avoid unnecessary DOM updates
-                    const hash = data.html.length.toString(36);
-                    if (hash !== lastCascadeHash) {
-                        lastCascadeHash = hash;
+                if (data.found && data.messages) {
+                    // Hash on message count + last text/activity + pending prompt
+                    const last = data.messages[data.messages.length - 1] || {};
+                    const promptKey = data.prompt ? 'P:' + (data.prompt.question || '') + '|' +
+                        (data.prompt.options || []).map(o => o.label).join(',') : '';
+                    const artKey = data.artifact ? 'A:' + data.artifact.title + '|' + data.artifact.html.length : '';
+                    const hash = data.messages.length + '|' + (last.text || '').length + '|' +
+                        (last.worked || '') + '|' + (last.actions || []).map(a => a.label).join(',') + '|' + promptKey + '|' + artKey;
+                    if (hash === lastCascadeHash) return;
+                    lastCascadeHash = hash;
 
-                        // Inject CSS (always update to apply fixes)
-                        if (data.css) {
-                            const styleEl = document.getElementById('cascadeStyles');
-                            styleEl.textContent = `
-                                ${data.css}
-                                /* Fixes for empty space and scrolling */
-                                #cascade-container {
-                                    background: transparent !important;
-                                    width: 100% !important;
-                                    height: auto !important;
-                                    overflow-y: auto !important;
-                                    overflow-x: hidden !important;
-                                    max-height: none !important;
-                                    position: relative !important;
-                                    overscroll-behavior-y: contain !important;
-                                }
-                                
-                                /* Hide virtualized scroll placeholders */
-                                #cascade-container [style*="min-height"] {
-                                    min-height: 0 !important;
-                                }
-                                #cascade-container .bg-gray-500\\/10:not(:has(*)),
-                                #cascade-container [class*="bg-gray-500"]:not(:has(*)) {
-                                    display: none !important;
-                                }
-                                
-                                /* Prevent empty spacers from breaking layout */
-                                
-                                /* 1. Define the missing variable so ALL text using it becomes visible */
-                                #cascade-container {
-                                    --ide-text-color: var(--text-primary) !important;
-                                }
-                                
-                                /* Ensure codicon font renders properly on mobile */
-                                #cascade-container .codicon,
-                                #cascade-container [class*="codicon-"] {
-                                    font-family: 'codicon' !important;
-                                }
-                                
-                                /* Removed manual code block styling to inherit IDE tailwind correctly */
-                            `;
-                        }
+                    const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 120;
 
-                        const container = document.getElementById('cascade-container');
-                        const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 100;
+                    // Update model label if provided
+                    if (data.model) {
+                        const lbl = document.getElementById('currentModelLabel');
+                        if (lbl && lbl.textContent !== data.model) lbl.textContent = data.model;
+                    }
 
-                        // Merge with cached content if caching is enabled
-                        let finalHtml = data.html;
+                    container.innerHTML = '';
 
+                    // artifact banner (tap to open the reader) + live overlay refresh
+                    if (data.artifact && data.artifact.open) {
+                        container.appendChild(renderArtifactBanner(data.artifact));
+                        if (artifactOverlayOpen) openArtifactOverlay(data.artifact);
+                    } else if (artifactOverlayOpen) {
+                        closeArtifactOverlay();   // artifact was closed in the IDE
+                    }
 
-                        // Inject the raw cascade HTML
-                        container.innerHTML = finalHtml;
+                    if (data.messages.length === 0 && !data.artifact) {
+                        container.innerHTML = `<div class="chat-empty"><span>No messages yet</span></div>`;
+                    } else {
+                        const frag = document.createDocumentFragment();
+                        data.messages.forEach(m => frag.appendChild(renderMessage(m)));
+                        container.appendChild(frag);
+                    }
 
-                        // Attach click handlers for approval buttons in the injected content
-                        attachApprovalHandlers(container);
+                    // pending multiple-choice prompt (sticks to the end)
+                    if (data.prompt) container.appendChild(renderPrompt(data.prompt));
 
-                        // Scroll to bottom if was at bottom
-                        if (isAtBottom) {
-                            // Use scrollIntoView on the last element for better reliability
-                            setTimeout(() => {
-                                if (container.lastElementChild) {
-                                    container.lastElementChild.scrollIntoView({ behavior: 'smooth', block: 'end' });
-                                } else {
-                                    container.scrollTop = container.scrollHeight;
-                                }
-                            }, 100);
-                        }
+                    if (isAtBottom) {
+                        setTimeout(() => { container.scrollTop = container.scrollHeight; }, 60);
                     }
                 } else if (data.error) {
-                    document.getElementById('cascade-container').innerHTML = `
-                        <div class="chat-empty">
-                            <span class="icon">⚠️</span>
-                            <span>${data.error}</span>
-                        </div>
-                    `;
+                    if (lastCascadeHash !== 'err:' + data.error) {
+                        lastCascadeHash = 'err:' + data.error;
+                        container.innerHTML = `<div class="chat-empty"><span class="icon">⚠️</span><span>${escapeHtml(data.error)}</span></div>`;
+                    }
                 }
             } catch (e) {
                 console.log('Chat fetch error:', e);

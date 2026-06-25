@@ -11,6 +11,7 @@ import WebSocket from 'ws';
 import * as TelegramBot from './telegram-bot.mjs';
 import * as Config from './config.mjs';
 import { clickElementByXPath, getPreferredWorkspace } from './cdp-client.mjs';
+import { extractStructured, extractConversations, switchConversation, newConversation } from './antigravity-dom.mjs';
 
 // Notification state tracker (avoids duplicate alerts)
 let lastNotifState = { inputNeeded: false, error: false, dialogError: false };
@@ -829,4 +830,124 @@ export async function getChatSnapshot() {
  */
 export function isStreaming() {
     return connection !== null && pollInterval !== null;
+}
+
+/**
+ * Find the execution context that contains the chat by running the structured
+ * extractor against each context (works for Antigravity 2.0, which has no
+ * #cascade element). Returns { contextId, model } or null.
+ */
+async function findStructuredContext(cdp) {
+    for (const ctx of cdp.contexts) {
+        const model = await extractStructured(cdp, ctx.id);
+        if (model && model.found) return { contextId: ctx.id, model };
+    }
+    return null;
+}
+
+/**
+ * Get a structured snapshot of the conversation (clean JSON model).
+ * Used by the new mobile chat renderer. Reuses the live connection if present,
+ * otherwise opens a one-shot CDP connection.
+ */
+export async function getStructuredSnapshot() {
+    // Reuse active stream connection if available
+    if (connection) {
+        const found = await findStructuredContext(connection);
+        if (found) return found.model;
+    }
+
+    // One-shot connection
+    const targets = await findTargets();
+    for (const target of targets) {
+        try {
+            const cdp = await connectCDP(target.webSocketDebuggerUrl);
+            const found = await findStructuredContext(cdp);
+            cdp.ws.close();
+            if (found) return found.model;
+        } catch (e) { /* try next target */ }
+    }
+    return null;
+}
+
+/**
+ * Find a context that can list conversations.
+ */
+async function findConversationsContext(cdp) {
+    for (const ctx of cdp.contexts) {
+        const conv = await extractConversations(cdp, ctx.id);
+        if (conv && conv.found) return { contextId: ctx.id, conv };
+    }
+    return null;
+}
+
+/**
+ * List conversations (chat history) for the picker.
+ */
+export async function getConversations() {
+    if (connection) {
+        const found = await findConversationsContext(connection);
+        if (found) return found.conv;
+    }
+    const targets = await findTargets();
+    for (const target of targets) {
+        try {
+            const cdp = await connectCDP(target.webSocketDebuggerUrl);
+            const found = await findConversationsContext(cdp);
+            cdp.ws.close();
+            if (found) return found.conv;
+        } catch (e) { /* next */ }
+    }
+    return null;
+}
+
+/**
+ * Switch the IDE to a conversation by id.
+ */
+export async function switchToConversation(id) {
+    const doSwitch = async (cdp) => {
+        const found = await findConversationsContext(cdp);
+        if (!found) return false;
+        return switchConversation(cdp, found.contextId, id);
+    };
+
+    if (connection) {
+        const ok = await doSwitch(connection);
+        if (ok) return true;
+    }
+    const targets = await findTargets();
+    for (const target of targets) {
+        try {
+            const cdp = await connectCDP(target.webSocketDebuggerUrl);
+            const ok = await doSwitch(cdp);
+            cdp.ws.close();
+            if (ok) return true;
+        } catch (e) { /* next */ }
+    }
+    return false;
+}
+
+/**
+ * Start a new conversation (clicks the IDE's "New Conversation" button).
+ */
+export async function startNewConversation() {
+    const doNew = async (cdp) => {
+        const found = await findConversationsContext(cdp);
+        const ctxId = found ? found.contextId : (await findStructuredContext(cdp))?.contextId;
+        if (!ctxId) return false;
+        return newConversation(cdp, ctxId);
+    };
+    if (connection) {
+        if (await doNew(connection)) return true;
+    }
+    const targets = await findTargets();
+    for (const target of targets) {
+        try {
+            const cdp = await connectCDP(target.webSocketDebuggerUrl);
+            const ok = await doNew(cdp);
+            cdp.ws.close();
+            if (ok) return true;
+        } catch (e) { /* next */ }
+    }
+    return false;
 }

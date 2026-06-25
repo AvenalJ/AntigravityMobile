@@ -1947,6 +1947,90 @@ export async function respondToApproval(action) {
  * Click an element in the Antigravity chat by XPath
  * Searches all execution contexts for #cascade, then clicks the element
  */
+/**
+ * Fill a text input/textarea identified by xpath with `text` (React-safe:
+ * uses the native value setter + dispatches input/change), then optionally
+ * click a submit element identified by `submitXpath`.
+ * Used for the "Other (write your answer)" field in multiple-choice prompts.
+ */
+export async function fillAndSubmitByXPath(xpath, text, submitXpath = null) {
+    const target = await findEditorTarget();
+    if (!target) throw new Error('No editor target found');
+
+    return new Promise(async (resolve) => {
+        const { default: WebSocket } = await import('ws');
+        const ws = new WebSocket(target.webSocketDebuggerUrl);
+        const contexts = [];
+        let messageId = 1;
+        const pending = new Map();
+
+        const call = (method, params = {}) => new Promise((res, rej) => {
+            const id = messageId++;
+            pending.set(id, { resolve: res, reject: rej });
+            ws.send(JSON.stringify({ id, method, params }));
+            setTimeout(() => { if (pending.has(id)) { pending.delete(id); rej(new Error('Timeout')); } }, 4000);
+        });
+
+        ws.on('message', (msg) => {
+            try {
+                const data = JSON.parse(msg.toString());
+                if (data.id && pending.has(data.id)) {
+                    const { resolve, reject } = pending.get(data.id);
+                    pending.delete(data.id);
+                    if (data.error) reject(new Error(data.error.message)); else resolve(data.result);
+                } else if (data.method === 'Runtime.executionContextCreated') {
+                    contexts.push(data.params.context);
+                }
+            } catch (e) { }
+        });
+
+        ws.on('open', async () => {
+            try {
+                await call('Runtime.enable', {});
+                await new Promise(r => setTimeout(r, 400));
+
+                const SCRIPT = `(async () => {
+                    const find = (xp) => document.evaluate(xp, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+                    try {
+                        const el = find(${JSON.stringify(xpath)});
+                        if (!el) return { found: false };
+                        el.focus();
+                        const proto = el.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+                        const setter = Object.getOwnPropertyDescriptor(proto, 'value').set;
+                        setter.call(el, ${JSON.stringify(text)});
+                        el.dispatchEvent(new Event('input', { bubbles: true }));
+                        el.dispatchEvent(new Event('change', { bubbles: true }));
+                        await new Promise(r => setTimeout(r, 150));
+                        ${submitXpath ? `const sb = find(${JSON.stringify(submitXpath)}); if (sb) sb.click();` : ''}
+                        return { found: true, filled: true };
+                    } catch(e) { return { found: false, error: e.message }; }
+                })()`;
+
+                for (const ctx of contexts) {
+                    try {
+                        const result = await call('Runtime.evaluate', {
+                            expression: SCRIPT, returnByValue: true, awaitPromise: true, contextId: ctx.id
+                        });
+                        const val = result.result?.value;
+                        if (val?.found && val.filled) {
+                            ws.close();
+                            resolve({ success: true });
+                            return;
+                        }
+                    } catch (e) { }
+                }
+                ws.close();
+                resolve({ success: false, error: 'Input not found in any context' });
+            } catch (e) {
+                ws.close();
+                resolve({ success: false, error: e.message });
+            }
+        });
+
+        ws.on('error', () => resolve({ success: false, error: 'WebSocket error' }));
+    });
+}
+
 export async function clickElementByXPath(xpath) {
     const target = await findEditorTarget();
     if (!target) throw new Error('No editor target found');
@@ -1987,9 +2071,10 @@ export async function clickElementByXPath(xpath) {
                 await call('Runtime.enable', {});
                 await new Promise(r => setTimeout(r, 400));
 
+                // NOTE: Antigravity 2.0 has no #cascade element, so we no longer
+                // gate on it. We evaluate the xpath in every context and click in
+                // whichever one actually contains the target element.
                 const SCRIPT = `(() => {
-                    const cascade = document.getElementById('cascade') || document.getElementById('conversation');
-                    if (!cascade) return { found: false };
                     try {
                         const el = document.evaluate(
                             ${JSON.stringify(xpath)},
@@ -1998,11 +2083,12 @@ export async function clickElementByXPath(xpath) {
                             XPathResult.FIRST_ORDERED_NODE_TYPE,
                             null
                         ).singleNodeValue;
-                        if (!el) return { found: true, clicked: false, error: 'XPath not found' };
+                        if (!el) return { found: false };
+                        el.scrollIntoView({ block: 'center' });
                         el.click();
                         return { found: true, clicked: true, tag: el.tagName, text: (el.innerText || '').slice(0, 60) };
                     } catch(e) {
-                        return { found: true, clicked: false, error: e.message };
+                        return { found: false, error: e.message };
                     }
                 })()`;
 
@@ -2014,18 +2100,16 @@ export async function clickElementByXPath(xpath) {
                             contextId: ctx.id
                         });
                         const val = result.result?.value;
-                        if (val?.found) {
+                        if (val?.found && val.clicked) {
                             ws.close();
-                            resolve(val.clicked
-                                ? { success: true, tag: val.tag, text: val.text }
-                                : { success: false, error: val.error });
+                            resolve({ success: true, tag: val.tag, text: val.text });
                             return;
                         }
                     } catch (e) { }
                 }
 
                 ws.close();
-                resolve({ success: false, error: 'Cascade context not found' });
+                resolve({ success: false, error: 'Element not found in any context' });
             } catch (e) {
                 ws.close();
                 resolve({ success: false, error: e.message });

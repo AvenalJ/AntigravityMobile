@@ -127,6 +127,9 @@ class ApiClient(private val settingsProvider: () -> ConnectionSettings) {
     /** Cache-busting URL for the live screen frame (load with Coil). */
     fun liveScreenUrl(ts: Long): String = settings().restUrl("/api/screen/live.jpg?ts=$ts")
 
+    /** URL of the embeddable web chat page (structured chat + conversation picker). */
+    fun webChatUrl(): String = settings().restUrl("/minimal.html")
+
     suspend fun screenClick(x: Double, y: Double) {
         postRaw("/api/screen/click", buildJsonObject { put("x", x); put("y", y) }.toString())
     }

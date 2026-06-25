@@ -512,7 +512,16 @@ app.post('/api/admin/rebuild-html', localhostOnly, (req, res) => {
 });
 
 // Static files (CSS/JS source files, images, manifest, etc.)
-app.use(express.static(join(PROJECT_ROOT, 'public')));
+// Disable caching for HTML/CSS/JS so the mobile WebView always loads the latest
+// UI (WebViews cache aggressively — stale chat.css/minimal.html caused "not
+// updating" symptoms). Other assets keep default caching.
+app.use(express.static(join(PROJECT_ROOT, 'public'), {
+    setHeaders: (res, path) => {
+        if (/\.(html|css|js)$/i.test(path)) {
+            res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+        }
+    },
+}));
 
 // CORS
 app.use((req, res, next) => {
@@ -1474,6 +1483,86 @@ app.get('/api/chat/snapshot', async (req, res) => {
         }
     } catch (e) {
         res.status(500).json({ error: e.message, messages: [] });
+    }
+});
+
+// Structured chat snapshot (clean JSON model, rendered by mobile with our own CSS)
+app.get('/api/chat/structured', async (req, res) => {
+    try {
+        const model = await ChatStream.getStructuredSnapshot();
+        if (model) {
+            res.json(model);
+        } else {
+            res.status(503).json({ found: false, error: 'No chat found', messages: [] });
+        }
+    } catch (e) {
+        res.status(500).json({ found: false, error: e.message, messages: [] });
+    }
+});
+
+// List conversations (chat history) for the picker
+app.get('/api/chat/conversations', async (req, res) => {
+    try {
+        const conv = await ChatStream.getConversations();
+        if (conv) res.json(conv);
+        else res.status(503).json({ found: false, conversations: [] });
+    } catch (e) {
+        res.status(500).json({ found: false, error: e.message, conversations: [] });
+    }
+});
+
+// Switch to a conversation by id
+app.post('/api/chat/conversations/switch', async (req, res) => {
+    try {
+        const { id } = req.body || {};
+        if (!id) return res.status(400).json({ success: false, error: 'id required' });
+        const ok = await ChatStream.switchToConversation(id);
+        res.json({ success: ok, error: ok ? undefined : 'Conversation not found' });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// Start a new conversation
+app.post('/api/chat/conversations/new', async (req, res) => {
+    try {
+        const ok = await ChatStream.startNewConversation();
+        res.json({ success: ok, error: ok ? undefined : 'New Conversation button not found' });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// Answer a pending multiple-choice prompt from mobile.
+// body: { kind: 'option'|'other'|'skip', optionXpath?, text?, otherXpath?, submitXpath?, skipXpath? }
+app.post('/api/chat/answer', async (req, res) => {
+    try {
+        const { kind, optionXpath, text, otherXpath, submitXpath, skipXpath } = req.body || {};
+
+        if (kind === 'skip') {
+            if (!skipXpath) return res.status(400).json({ success: false, error: 'skipXpath required' });
+            const r = await CDP.clickElementByXPath(skipXpath);
+            return res.json(r);
+        }
+
+        if (kind === 'other') {
+            if (!otherXpath || !text) return res.status(400).json({ success: false, error: 'otherXpath and text required' });
+            const r = await CDP.fillAndSubmitByXPath(otherXpath, text, submitXpath || null);
+            return res.json(r);
+        }
+
+        // default: select a radio option, then submit
+        if (!optionXpath) return res.status(400).json({ success: false, error: 'optionXpath required' });
+        const sel = await CDP.clickElementByXPath(optionXpath);
+        if (!sel.success) return res.json(sel);
+        if (submitXpath) {
+            await new Promise(r => setTimeout(r, 200));
+            const sub = await CDP.clickElementByXPath(submitXpath);
+            return res.json(sub);
+        }
+        res.json(sel);
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
     }
 });
 

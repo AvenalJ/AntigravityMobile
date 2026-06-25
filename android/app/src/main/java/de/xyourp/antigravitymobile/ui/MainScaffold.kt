@@ -140,14 +140,7 @@ fun MainScaffold(repo: AppRepository, onOpenSettings: () -> Unit) {
         Box(Modifier.fillMaxSize().padding(padding)) {
             when (tab) {
                 Tab.Chat -> ChatScreen(
-                    state = chat,
-                    currentModel = session.currentModel,
-                    pendingApproval = session.pendingApproval,
-                    responding = session.respondingApproval,
-                    onModelClick = { showModelSheet = true },
-                    onApprove = { sessionVm.respondApproval("approve") },
-                    onReject = { sessionVm.respondApproval("reject") },
-                    onSend = { chatVm.send(it) },
+                    webChatUrl = chatVm.webChatUrl(),
                 )
                 Tab.Files -> Column(Modifier.fillMaxSize()) {
                     RepoHeader(session.workspaceName) { showRepoSheet = true }

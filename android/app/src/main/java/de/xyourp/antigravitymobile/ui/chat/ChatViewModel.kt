@@ -81,6 +81,9 @@ class ChatViewModel(private val repo: AppRepository) : ViewModel() {
         }
     }
 
+    /** URL of the embeddable web chat page shown in the native WebView. */
+    fun webChatUrl(): String = repo.api.webChatUrl()
+
     fun send(prompt: String) {
         val text = prompt.trim()
         if (text.isEmpty()) return
