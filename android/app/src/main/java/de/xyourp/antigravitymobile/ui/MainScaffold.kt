@@ -174,6 +174,7 @@ fun MainScaffold(repo: AppRepository, onOpenSettings: () -> Unit) {
                     autoRefresh = screenAuto,
                     urlFor = { screenVm.urlFor(it) },
                     onTap = { x, y -> screenVm.click(x, y) },
+                    onMouse = { type, x, y, button -> screenVm.mouse(type, x, y, button) },
                     onScroll = { dy -> screenVm.scroll(0.5f, 0.5f, dy) },
                     onSubmit = { screenVm.submit(it) },
                     onKey = { screenVm.key(it) },

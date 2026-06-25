@@ -521,6 +521,8 @@ export async function injectAndSubmit(text) {
 // server maps them to the page's CSS viewport.
 // ============================================================================
 
+let cachedViewport = { w: 1280, h: 800 };
+
 async function cssViewport(client) {
     // Runtime.evaluate is reliable across these Electron targets; Page.getLayoutMetrics
     // can hang on the 2.0 app, so use innerWidth/innerHeight instead.
@@ -529,11 +531,48 @@ async function cssViewport(client) {
         returnByValue: true,
     });
     const v = res?.result?.value || {};
-    return { w: v.w || 1280, h: v.h || 800 };
+    cachedViewport = { w: v.w || 1280, h: v.h || 800 };
+    return cachedViewport;
+}
+
+export function liveSendNoWait(method, params) {
+    if (live) {
+        live.client.sendNoWait(method, params);
+        return true;
+    }
+    return false;
+}
+
+/** Dispatch a single mouse event (useful for dragging). */
+export async function dispatchMouse(type, normX, normY, button = 'none') {
+    if (live) {
+        const { w, h } = cachedViewport;
+        const x = Math.max(0, Math.min(1, normX)) * w;
+        const y = Math.max(0, Math.min(1, normY)) * h;
+        liveSendNoWait('Input.dispatchMouseEvent', { type, x, y, button, clickCount: 1 });
+        return { success: true, x, y };
+    }
+    return screenOp(async (client) => {
+        const { w, h } = await cssViewport(client);
+        const x = Math.max(0, Math.min(1, normX)) * w;
+        const y = Math.max(0, Math.min(1, normY)) * h;
+        client.sendNoWait('Input.dispatchMouseEvent', { type, x, y, button, clickCount: 1 });
+        await sleep(50);
+        return { success: true, x, y };
+    });
 }
 
 /** Click at a normalised (0..1) point on the mirrored page. */
 export async function clickAt(normX, normY, clickCount = 1) {
+    if (live) {
+        const { w, h } = cachedViewport;
+        const x = Math.max(0, Math.min(1, normX)) * w;
+        const y = Math.max(0, Math.min(1, normY)) * h;
+        liveSendNoWait('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, button: 'none' });
+        liveSendNoWait('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount });
+        liveSendNoWait('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount });
+        return { success: true, x, y };
+    }
   return screenOp(async (client) => {
     const { w, h } = await cssViewport(client);
     const x = Math.max(0, Math.min(1, normX)) * w;
@@ -548,6 +587,10 @@ export async function clickAt(normX, normY, clickCount = 1) {
 
 /** Insert literal text at the current focus (after a click). */
 export async function typeText(text) {
+    if (live) {
+        liveSendNoWait('Input.insertText', { text });
+        return { success: true };
+    }
   return screenOp(async (client) => {
     client.sendNoWait('Input.insertText', { text });
     await sleep(120);
@@ -571,8 +614,14 @@ const KEY_MAP = {
 export async function pressKey(key) {
     const k = KEY_MAP[key];
     if (!k) throw new Error(`Unsupported key: ${key}`);
-  return screenOp(async (client) => {
+    
     const base = { key, code: k.code, windowsVirtualKeyCode: k.vk, nativeVirtualKeyCode: k.vk };
+    if (live) {
+        liveSendNoWait('Input.dispatchKeyEvent', { type: 'keyDown', ...base });
+        liveSendNoWait('Input.dispatchKeyEvent', { type: 'keyUp', ...base });
+        return { success: true };
+    }
+  return screenOp(async (client) => {
     client.sendNoWait('Input.dispatchKeyEvent', { type: 'keyDown', ...base });
     client.sendNoWait('Input.dispatchKeyEvent', { type: 'keyUp', ...base });
     await sleep(120);
@@ -582,6 +631,17 @@ export async function pressKey(key) {
 
 /** Mouse-wheel scroll at a normalised point. */
 export async function scrollAt(normX, normY, deltaY) {
+    if (live) {
+        const { w, h } = cachedViewport;
+        liveSendNoWait('Input.dispatchMouseEvent', {
+            type: 'mouseWheel',
+            x: Math.max(0, Math.min(1, normX)) * w,
+            y: Math.max(0, Math.min(1, normY)) * h,
+            deltaX: 0,
+            deltaY,
+        });
+        return { success: true };
+    }
   return screenOp(async (client) => {
     const { w, h } = await cssViewport(client);
     client.sendNoWait('Input.dispatchMouseEvent', {

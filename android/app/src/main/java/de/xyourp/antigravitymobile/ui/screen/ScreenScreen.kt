@@ -2,6 +2,7 @@ package de.xyourp.antigravitymobile.ui.screen
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -60,6 +61,7 @@ fun ScreenScreen(
     autoRefresh: Boolean,
     urlFor: (Long) -> String,
     onTap: (Float, Float) -> Unit,
+    onMouse: (String, Float, Float, String) -> Unit,
     onScroll: (Float) -> Unit,           // deltaY (uses centre of screen)
     onSubmit: (String) -> Unit,
     onKey: (String) -> Unit,
@@ -89,6 +91,7 @@ fun ScreenScreen(
 
             var everLoaded by remember { mutableStateOf(false) }
             var errorStreak by remember { mutableStateOf(0) }
+            var lastPainter by remember { mutableStateOf<androidx.compose.ui.graphics.painter.Painter?>(null) }
 
             Box(
                 Modifier.fillMaxSize()
@@ -97,6 +100,38 @@ fun ScreenScreen(
                         detectTapGestures { tap ->
                             normalize(tap, containerSize, imgAspect, scale, offset)?.let { onTap(it.x, it.y) }
                         }
+                    }
+                    .pointerInput(containerSize, imgAspect) {
+                        var lastDragPos: Offset? = null
+                        detectDragGestures(
+                            onDragStart = { start ->
+                                lastDragPos = start
+                                normalize(start, containerSize, imgAspect, scale, offset)?.let { 
+                                    onMouse("mousePressed", it.x, it.y, "left") 
+                                }
+                            },
+                            onDragEnd = {
+                                lastDragPos?.let { pos ->
+                                    normalize(pos, containerSize, imgAspect, scale, offset)?.let {
+                                        onMouse("mouseReleased", it.x, it.y, "left")
+                                    }
+                                }
+                            },
+                            onDragCancel = {
+                                lastDragPos?.let { pos ->
+                                    normalize(pos, containerSize, imgAspect, scale, offset)?.let {
+                                        onMouse("mouseReleased", it.x, it.y, "left")
+                                    }
+                                }
+                            },
+                            onDrag = { change, dragAmount ->
+                                change.consume()
+                                lastDragPos = change.position
+                                normalize(change.position, containerSize, imgAspect, scale, offset)?.let {
+                                    onMouse("mouseMoved", it.x, it.y, "left") 
+                                }
+                            }
+                        )
                     }
                     .pointerInput(Unit) {
                         detectTransformGestures { _, pan, zoom, _ ->
@@ -110,17 +145,16 @@ fun ScreenScreen(
                     model = request,
                     contentDescription = "Live screen",
                     contentScale = ContentScale.Fit,
-                    onState = { st ->
-                        when (st) {
-                            is AsyncImagePainter.State.Success -> {
-                                everLoaded = true
-                                errorStreak = 0
-                                val s = st.painter.intrinsicSize
-                                if (s.isSpecified && s.height > 0) imgAspect = s.width / s.height
-                            }
-                            is AsyncImagePainter.State.Error -> errorStreak += 1
-                            else -> {}
-                        }
+                    placeholder = lastPainter,
+                    onSuccess = { st ->
+                        everLoaded = true
+                        errorStreak = 0
+                        lastPainter = st.painter
+                        val s = st.painter.intrinsicSize
+                        if (s.isSpecified && s.height > 0) imgAspect = s.width / s.height
+                    },
+                    onError = {
+                        errorStreak += 1
                     },
                     modifier = Modifier.fillMaxSize().graphicsLayer(
                         scaleX = scale, scaleY = scale,

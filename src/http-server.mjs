@@ -1789,6 +1789,13 @@ app.post('/api/screen/scroll', async (req, res) => {
     } catch (e) { res.status(500).json({ success: false, error: e.message }); }
 });
 
+app.post('/api/screen/mouse', async (req, res) => {
+    try {
+        const { type, x, y, button } = req.body || {};
+        res.json(await CDP.dispatchMouse(type, Number(x), Number(y), button || 'none'));
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+});
+
 // ============================================================================
 // Repository selection — saved list of repo roots; selecting one sets workspace
 // ============================================================================

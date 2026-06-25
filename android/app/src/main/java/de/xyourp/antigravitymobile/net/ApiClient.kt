@@ -131,6 +131,10 @@ class ApiClient(private val settingsProvider: () -> ConnectionSettings) {
         postRaw("/api/screen/click", buildJsonObject { put("x", x); put("y", y) }.toString())
     }
 
+    suspend fun screenMouse(type: String, x: Double, y: Double, button: String) {
+        postRaw("/api/screen/mouse", buildJsonObject { put("type", type); put("x", x); put("y", y); put("button", button) }.toString())
+    }
+
     suspend fun screenScroll(x: Double, y: Double, deltaY: Double) {
         postRaw("/api/screen/scroll", buildJsonObject { put("x", x); put("y", y); put("deltaY", deltaY) }.toString())
     }

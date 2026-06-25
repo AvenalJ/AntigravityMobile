@@ -51,6 +51,13 @@ class ScreenViewModel(private val repo: AppRepository) : ViewModel() {
     fun urlFor(t: Long): String = repo.api.liveScreenUrl(t)
 
     fun click(nx: Float, ny: Float) = input { repo.api.screenClick(nx.toDouble(), ny.toDouble()) }
+    
+    fun mouse(type: String, nx: Float, ny: Float, button: String = "none") {
+        viewModelScope.launch {
+            runCatching { repo.api.screenMouse(type, nx.toDouble(), ny.toDouble(), button) }
+        }
+    }
+
     fun scroll(nx: Float, ny: Float, deltaY: Float) = input { repo.api.screenScroll(nx.toDouble(), ny.toDouble(), deltaY.toDouble()) }
     fun type(text: String) = input { repo.api.screenType(text) }
     fun key(name: String) = input { repo.api.screenKey(name) }
