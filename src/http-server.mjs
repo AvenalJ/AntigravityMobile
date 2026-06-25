@@ -29,6 +29,7 @@ import * as TelegramBot from './telegram-bot.mjs';
 import * as Tunnel from './tunnel.mjs';
 import * as Supervisor from './supervisor-service.mjs';
 import * as OllamaClient from './ollama-client.mjs';
+import * as Git from './git-service.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..');
@@ -95,7 +96,8 @@ function trackMetric(type) {
 // ============================================================================
 // Configuration
 // ============================================================================
-const HTTP_PORT = 3001;
+// HTTP + WebSocket share this single port. Default 5000; override via data/config.json -> server.port.
+const HTTP_PORT = Config.getConfig('server.port') || 5000;
 const DATA_DIR = join(PROJECT_ROOT, 'data');
 const UPLOADS_DIR = join(PROJECT_ROOT, 'uploads');
 const MESSAGES_FILE = join(DATA_DIR, 'messages.json');
@@ -138,6 +140,13 @@ async function promptForAuth() {
     // Skip prompt if not running in an interactive terminal
     if (!process.stdin.isTTY) {
         console.log('ℹ️ Non-interactive mode - auth disabled (set MOBILE_PIN env to enable)');
+        return;
+    }
+
+    // Explicitly skip the interactive prompt (used by the IDE auto-start task, whose
+    // pseudo-terminal can report isTTY=true and would otherwise hang on input).
+    if (process.env.MOBILE_SKIP_AUTH_PROMPT === '1') {
+        console.log('ℹ️ Auto-start mode - skipping auth prompt (set MOBILE_PIN env to enable auth)');
         return;
     }
 
@@ -930,6 +939,40 @@ app.get('/api/admin/screenshots/:filename', localhostOnly, (req, res) => {
     res.send(readFileSync(file));
 });
 
+// ----------------------------------------------------------------------------
+// Mobile screenshot timeline (Tailscale-reachable, NOT localhost-only)
+// Mirrors the admin routes above so the Android companion can show the saved
+// scheduled-screenshot timeline. Security is provided by the Tailscale network.
+// ----------------------------------------------------------------------------
+app.get('/api/screenshots', (req, res) => {
+    try {
+        if (!existsSync(SCREENSHOTS_DIR)) return res.json({ screenshots: [] });
+        const files = readdirSync(SCREENSHOTS_DIR).filter(f => f.endsWith('.jpg')).sort().reverse();
+        const screenshots = files.slice(0, 100).map(f => {
+            const stats = statSync(join(SCREENSHOTS_DIR, f));
+            // Filename format: screenshot-YYYY-MM-DD-HH-MM-SS.jpg -> ISO-ish timestamp
+            const ts = f.replace('screenshot-', '').replace('.jpg', '')
+                .replace(/-/g, (m, i) => i < 10 ? '-' : i === 10 ? 'T' : ':').slice(0, 19);
+            return { filename: f, size: stats.size, timestamp: ts, url: `/api/screenshots/${f}` };
+        });
+        res.json({ screenshots });
+    } catch (e) { res.json({ screenshots: [], error: e.message }); }
+});
+
+// Serve a saved screenshot image to mobile (Tailscale-reachable)
+app.get('/api/screenshots/:filename', (req, res) => {
+    // Prevent path traversal: only allow the expected filename shape
+    const name = req.params.filename;
+    if (!/^screenshot-[\w-]+\.jpg$/.test(name)) {
+        return res.status(400).json({ error: 'Invalid filename' });
+    }
+    const file = join(SCREENSHOTS_DIR, name);
+    if (!existsSync(file)) return res.status(404).json({ error: 'Not found' });
+    res.set('Content-Type', 'image/jpeg');
+    res.set('Cache-Control', 'public, max-age=31536000, immutable');
+    res.send(readFileSync(file));
+});
+
 // Toggle auto-accept commands
 app.post('/api/admin/auto-accept/toggle', localhostOnly, (req, res) => {
     const current = Config.getConfig('autoAcceptCommands');
@@ -1675,6 +1718,108 @@ app.post('/api/workspace/reset', async (req, res) => {
     } catch (e) {
         res.json({ success: false, workspace: workspacePath, error: e.message });
     }
+});
+
+// ============================================================================
+// Repository selection — saved list of repo roots; selecting one sets workspace
+// ============================================================================
+function setWorkspace(path) {
+    workspacePath = path;
+    Supervisor.setProjectRoot(workspacePath);
+    broadcast('workspace_changed', { path: workspacePath, projectName: basename(workspacePath) });
+}
+
+app.get('/api/repos', async (req, res) => {
+    const repos = Config.getConfig('repos') || [];
+    const withMeta = [];
+    for (const p of repos) {
+        withMeta.push({ path: p, name: basename(p), exists: existsSync(p), isRepo: existsSync(p) ? await Git.isRepo(p) : false });
+    }
+    res.json({ repos: withMeta, current: workspacePath, currentName: basename(workspacePath) });
+});
+
+app.post('/api/repos', (req, res) => {
+    const { path } = req.body || {};
+    if (!path || !existsSync(path)) return res.status(400).json({ error: 'Path does not exist' });
+    const repos = Config.getConfig('repos') || [];
+    if (!repos.includes(path)) repos.push(path);
+    Config.updateConfig('repos', repos);
+    res.json({ success: true, repos });
+});
+
+app.delete('/api/repos', (req, res) => {
+    const { path } = req.body || {};
+    const repos = (Config.getConfig('repos') || []).filter(p => p !== path);
+    Config.updateConfig('repos', repos);
+    res.json({ success: true, repos });
+});
+
+app.post('/api/repos/select', (req, res) => {
+    const { path } = req.body || {};
+    if (!path || !existsSync(path)) return res.status(400).json({ error: 'Path does not exist' });
+    // Remember it too, so selecting a fresh path also adds it to the list.
+    const repos = Config.getConfig('repos') || [];
+    if (!repos.includes(path)) { repos.push(path); Config.updateConfig('repos', repos); }
+    setWorkspace(path);
+    res.json({ success: true, workspace: workspacePath });
+});
+
+// ============================================================================
+// Git endpoints (operate on ?path= or the current workspace). No push.
+// ============================================================================
+function gitDir(req) {
+    return (req.query?.path || req.body?.path || workspacePath);
+}
+
+app.get('/api/git/status', async (req, res) => {
+    try {
+        res.json(await Git.status(gitDir(req)));
+    } catch (e) {
+        res.status(500).json({ isRepo: false, error: e.message, files: [] });
+    }
+});
+
+app.get('/api/git/diff', async (req, res) => {
+    try {
+        const file = req.query.file;
+        if (!file) return res.status(400).json({ error: 'file required' });
+        res.json(await Git.diff(gitDir(req), file, req.query.staged === '1' || req.query.staged === 'true'));
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get('/api/git/branches', async (req, res) => {
+    try {
+        res.json(await Git.branches(gitDir(req)));
+    } catch (e) {
+        res.status(500).json({ current: null, branches: [], error: e.message });
+    }
+});
+
+app.post('/api/git/stage', async (req, res) => {
+    try { res.json(await Git.stage(gitDir(req), req.body.file)); }
+    catch (e) { res.status(500).json({ success: false, error: e.message }); }
+});
+
+app.post('/api/git/unstage', async (req, res) => {
+    try { res.json(await Git.unstage(gitDir(req), req.body.file)); }
+    catch (e) { res.status(500).json({ success: false, error: e.message }); }
+});
+
+app.post('/api/git/discard', async (req, res) => {
+    try { res.json(await Git.discard(gitDir(req), req.body.file, !!req.body.untracked)); }
+    catch (e) { res.status(500).json({ success: false, error: e.message }); }
+});
+
+app.post('/api/git/commit', async (req, res) => {
+    try { res.json(await Git.commit(gitDir(req), req.body.message)); }
+    catch (e) { res.status(500).json({ success: false, error: e.message }); }
+});
+
+app.post('/api/git/checkout', async (req, res) => {
+    try { res.json(await Git.checkout(gitDir(req), req.body.branch, !!req.body.create)); }
+    catch (e) { res.status(500).json({ success: false, error: e.message }); }
 });
 
 // List files in directory

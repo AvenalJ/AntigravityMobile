@@ -6,6 +6,16 @@ Mobile dashboard and admin panel for [Antigravity IDE](https://antigravity.googl
   <img src="screenshots/screenshot.png" width="620" alt="Admin Panel Landscape" style="border:1px solid #30363d;border-radius:8px;" />
 </p>
 
+> **📱 Native Android companion app** — A Kotlin + Jetpack Compose app that talks to
+> this bridge over a private **Tailscale** network lives in [`android/`](android/).
+> See [`android/README.md`](android/README.md) to build and sideload the APK.
+>
+> **Port note:** the bridge now defaults to **port 5000** (HTTP + WebSocket on one
+> port), configurable via `data/config.json` → `server.port`. A `folderOpen` task in
+> [`.vscode/tasks.json`](.vscode/tasks.json) auto-starts it when the workspace opens
+> in Antigravity IDE. The screenshot timeline is also exposed to the phone via the new
+> Tailscale-reachable routes `GET /api/screenshots` and `GET /api/screenshots/:filename`.
+
 ## Features
 
 **Mobile Dashboard** — Real-time chat streaming, file browser with syntax highlighting, model quota monitor, and quick commands. Available in full and lite mode for low-bandwidth use.

@@ -1,0 +1,19 @@
+# Android / Gradle build artifacts
+.gradle/
+build/
+app/build/
+captures/
+.cxx/
+
+# Local environment (machine-specific SDK path)
+local.properties
+
+# Signing material — DO NOT commit real keystores/credentials
+keystore/
+*.jks
+*.keystore
+
+# IDE
+.idea/
+*.iml
+.DS_Store

@@ -7,30 +7,68 @@
  * - Page inspection
  */
 
+import { readFileSync, existsSync } from 'fs';
+import { join } from 'path';
+
 const CDP_PORTS = [9222, 9333, 9000, 9001, 9002, 9003];
 let cdpPort = null; // auto-discovered
 let preferredWorkspace = null;
 
 /**
- * Auto-discover the active CDP port by scanning known ports.
- * Caches the result so subsequent calls are instant.
+ * The Antigravity desktop apps are Electron/Chromium and write their live remote-
+ * debugging port to a `DevToolsActivePort` file in their user-data dir. The port is
+ * random per launch, so reading this file is the reliable way to find the running
+ * Antigravity 2.0 app (and the IDE, if it was started with debugging).
+ */
+function devToolsPortCandidates() {
+    const ports = [];
+    const roots = [process.env.APPDATA, process.env.LOCALAPPDATA].filter(Boolean);
+    const apps = ['Antigravity', 'Antigravity IDE']; // 2.0 app first (holds the agent chat)
+    for (const root of roots) {
+        for (const app of apps) {
+            try {
+                const f = join(root, app, 'DevToolsActivePort');
+                if (existsSync(f)) {
+                    const port = parseInt(readFileSync(f, 'utf-8').split(/\r?\n/)[0].trim());
+                    if (port > 0 && !ports.includes(port)) ports.push(port);
+                }
+            } catch (e) { /* ignore unreadable */ }
+        }
+    }
+    return ports;
+}
+
+async function isCdpReachable(port) {
+    try {
+        const res = await fetch(`http://localhost:${port}/json/version`, {
+            signal: AbortSignal.timeout(1500)
+        });
+        return res.ok;
+    } catch (e) {
+        return false;
+    }
+}
+
+/**
+ * Auto-discover the active CDP port. Prefers the DevToolsActivePort file (finds the
+ * Antigravity app on its random port), then falls back to the fixed port list.
+ * Re-validates a cached port so a stale/dead port (e.g. an IDE restart) self-heals.
  */
 async function discoverPort() {
-    if (cdpPort) return cdpPort;
-
-    for (const port of CDP_PORTS) {
-        try {
-            const res = await fetch(`http://localhost:${port}/json/version`, {
-                signal: AbortSignal.timeout(1500)
-            });
-            if (res.ok) {
-                cdpPort = port;
-                console.log(`🔌 CDP auto-discovered on port ${port}`);
-                return port;
-            }
-        } catch (e) { /* port not available */ }
+    if (cdpPort) {
+        if (await isCdpReachable(cdpPort)) return cdpPort;
+        cdpPort = null; // cached port is dead — rediscover
     }
-    throw new Error(`CDP not available on any port (tried ${CDP_PORTS.join(', ')})`);
+
+    const candidates = [...devToolsPortCandidates(), ...CDP_PORTS];
+    for (const port of candidates) {
+        if (await isCdpReachable(port)) {
+            cdpPort = port;
+            console.log(`🔌 CDP discovered on port ${port}`);
+            return port;
+        }
+    }
+    throw new Error(`CDP not available (tried DevToolsActivePort + ${CDP_PORTS.join(', ')})`);
 }
 
 function getCdpUrl() {

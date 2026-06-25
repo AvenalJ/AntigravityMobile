@@ -15,7 +15,7 @@ const CONFIG_FILE = join(PROJECT_ROOT, 'data', 'config.json');
 
 const DEFAULT_CONFIG = {
     server: {
-        port: 3001,
+        port: 5000,  // HTTP + WebSocket are multiplexed on this single port (reachable over Tailscale)
         pin: null  // null = no auth, string = PIN hash
     },
     telegram: {
@@ -35,6 +35,7 @@ const DEFAULT_CONFIG = {
     devices: [
         { name: 'Default', cdpPort: 9222, active: true }
     ],
+    repos: [],  // saved repository roots for the mobile companion's repo picker
     quickCommands: [
         { label: 'Run Tests', prompt: 'Run all tests and report results', icon: '🧪' },
         { label: 'Git Status', prompt: 'Show git status, recent commits, and any uncommitted changes', icon: '📊' },
