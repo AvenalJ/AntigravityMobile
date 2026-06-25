@@ -88,7 +88,10 @@ fun MainScaffold(repo: AppRepository, onOpenSettings: () -> Unit) {
     var showRepoSheet by remember { mutableStateOf(false) }
     var showBranchSheet by remember { mutableStateOf(false) }
 
-    LaunchedEffect(tab) { screenVm.setActive(tab == Tab.Screen) }
+    LaunchedEffect(tab) {
+        screenVm.setActive(tab == Tab.Screen)
+        sessionVm.setScreenActive(tab == Tab.Screen)
+    }
 
     Scaffold(
         topBar = {

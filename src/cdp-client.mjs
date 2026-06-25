@@ -312,6 +312,9 @@ async function ensureLive() {
         });
         client.ws.on('close', () => { if (live === state) live = null; });
         await client.send('Page.enable');
+        // Best-effort: nudge an occluded window to composite. (Won't un-minimize —
+        // a minimized Electron window has no surface for CDP to capture.)
+        await client.send('Page.bringToFront').catch(() => {});
         await client.send('Page.startScreencast', {
             format: 'jpeg', quality: 55, everyNthFrame: 1, maxWidth: 1600, maxHeight: 1000,
         });
@@ -331,6 +334,11 @@ async function stopLive() {
     }
 }
 
+/** True while a live screencast is running (it monopolises the 2.0 app's single CDP slot). */
+export function isLiveActive() {
+    return live != null;
+}
+
 /** Get the latest live frame (base64 jpeg); starts the screencast if needed. */
 export async function getLiveFrame(maxWaitMs = 4000) {
     return withCdpLock(async () => {
@@ -343,10 +351,11 @@ export async function getLiveFrame(maxWaitMs = 4000) {
     });
 }
 
-// Stop the screencast after 20s of no access (frees the connection).
+// Stop the screencast soon after the Screen tab stops fetching frames, so the single
+// CDP slot is freed for approvals/workspace polling again.
 setInterval(() => {
-    if (live && Date.now() - live.lastAccess > 20000) stopLive();
-}, 5000).unref?.();
+    if (live && Date.now() - live.lastAccess > 6000) stopLive();
+}, 2000).unref?.();
 
 // Input/capture can't run while a screencast holds the (single) CDP slot, so each
 // op stops the live screencast, runs on a fresh connection, then closes — the next

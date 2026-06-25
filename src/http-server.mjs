@@ -223,8 +223,9 @@ async function startWorkspacePolling() {
 
     const poll = async () => {
         try {
-            // Serialise with live-screen capture/input so it doesn't stall frames.
-            let detectedPath = await CDP.withCdpLock(() => CDP.getWorkspacePath());
+            // The live screencast holds the 2.0 app's single CDP slot — skip while active.
+            if (CDP.isLiveActive()) return;
+            let detectedPath = await CDP.getWorkspacePath();
 
             if (!detectedPath) {
                 consecutiveFailures++;
@@ -1620,7 +1621,9 @@ app.post('/api/modes/set', async (req, res) => {
 // Get pending approvals
 app.get('/api/approvals', async (req, res) => {
     try {
-        const result = await CDP.withCdpLock(() => CDP.getPendingApprovals());
+        // Don't open a competing CDP connection while the live screencast is active.
+        if (CDP.isLiveActive()) return res.json({ pending: false, count: 0, live: true });
+        const result = await CDP.getPendingApprovals();
         res.json(result);
     } catch (e) {
         res.json({ pending: false, count: 0, error: e.message });

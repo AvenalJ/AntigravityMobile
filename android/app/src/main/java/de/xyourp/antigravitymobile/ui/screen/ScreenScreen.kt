@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardReturn
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Backspace
+import androidx.compose.material.icons.filled.DesktopWindows
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Pause
@@ -86,6 +87,9 @@ fun ScreenScreen(
                     .build()
             }
 
+            var everLoaded by remember { mutableStateOf(false) }
+            var errorStreak by remember { mutableStateOf(0) }
+
             Box(
                 Modifier.fillMaxSize()
                     .onSizeChanged { containerSize = it }
@@ -107,9 +111,15 @@ fun ScreenScreen(
                     contentDescription = "Live screen",
                     contentScale = ContentScale.Fit,
                     onState = { st ->
-                        if (st is AsyncImagePainter.State.Success) {
-                            val s = st.painter.intrinsicSize
-                            if (s.isSpecified && s.height > 0) imgAspect = s.width / s.height
+                        when (st) {
+                            is AsyncImagePainter.State.Success -> {
+                                everLoaded = true
+                                errorStreak = 0
+                                val s = st.painter.intrinsicSize
+                                if (s.isSpecified && s.height > 0) imgAspect = s.width / s.height
+                            }
+                            is AsyncImagePainter.State.Error -> errorStreak += 1
+                            else -> {}
                         }
                     },
                     modifier = Modifier.fillMaxSize().graphicsLayer(
@@ -117,6 +127,10 @@ fun ScreenScreen(
                         translationX = offset.x, translationY = offset.y,
                     ),
                 )
+
+                if (!everLoaded || errorStreak >= 3) {
+                    WaitingOverlay(everLoaded)
+                }
             }
         }
 
@@ -172,6 +186,31 @@ private fun ControlBar(
                 IconButton(onClick = { onKey("Escape") }) { Text("Esc", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
         }
+    }
+}
+
+@Composable
+private fun WaitingOverlay(everLoaded: Boolean) {
+    Column(
+        Modifier.fillMaxSize().padding(28.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Icon(Icons.Filled.DesktopWindows, null, modifier = Modifier.size(48.dp), tint = Color(0xFF8A9A96))
+        Spacer(Modifier.size(14.dp))
+        Text(
+            if (everLoaded) "Live screen paused" else "Waiting for the Antigravity window",
+            color = Color(0xFFE6ECEA),
+            style = MaterialTheme.typography.titleSmall,
+        )
+        Spacer(Modifier.size(6.dp))
+        Text(
+            "No frames are coming through. Make sure the Antigravity window is open and " +
+                "not minimised on your laptop — a minimised window can't be captured.",
+            color = Color(0xFF8A9A96),
+            style = MaterialTheme.typography.bodySmall,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+        )
     }
 }
 

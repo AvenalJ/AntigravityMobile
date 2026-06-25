@@ -47,6 +47,7 @@ class SessionViewModel(private val repo: AppRepository) : ViewModel() {
     val state: StateFlow<SessionState> = _state.asStateFlow()
 
     @Volatile private var lastChatActivityMs: Long = 0L
+    @Volatile private var screenActive: Boolean = false
 
     init {
         loadWorkspace()
@@ -65,6 +66,16 @@ class SessionViewModel(private val repo: AppRepository) : ViewModel() {
 
     fun noteChatActivity() {
         lastChatActivityMs = System.currentTimeMillis()
+    }
+
+    /**
+     * The live Screen tab runs a screencast that holds the bridge's single CDP slot, so
+     * approval polling can't run then (it would fail and block live frames). Pause it
+     * while the Screen tab is active and show a neutral status.
+     */
+    fun setScreenActive(active: Boolean) {
+        screenActive = active
+        if (active) _state.value = _state.value.copy(agentStatus = AgentStatus.Idle, pendingApproval = null)
     }
 
     private fun observeSocket() {
@@ -175,7 +186,7 @@ class SessionViewModel(private val repo: AppRepository) : ViewModel() {
     private fun pollAgentStatus() {
         viewModelScope.launch {
             while (true) {
-                refreshApprovals()
+                if (!screenActive) refreshApprovals()
                 delay(3000)
             }
         }

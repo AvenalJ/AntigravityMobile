@@ -12,7 +12,7 @@ set MOBILE_SKIP_AUTH_PROMPT=1
 
 echo.
 echo   Starting Antigravity Mobile bridge on http://0.0.0.0:5000
-echo   Phone connects to:  http://<your-tailscale-ip>:5000
+echo   Phone connects to your Tailscale IP on port 5000
 echo   (Keep this window open. Close it to stop the bridge.)
 echo.
 
