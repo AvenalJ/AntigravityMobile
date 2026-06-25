@@ -2218,6 +2218,8 @@ wss.on('connection', (ws) => {
                 // Request screenshot
                 const base64 = await CDP.captureScreenshot();
                 ws.send(JSON.stringify({ event: 'screenshot', data: { image: base64 } }));
+            } else if (msg.action === 'watch_screen') {
+                await CDP.keepScreenAlive();
             }
         } catch (e) {
             ws.send(JSON.stringify({ event: 'error', data: { message: e.message } }));
@@ -2228,6 +2230,16 @@ wss.on('connection', (ws) => {
         clients.delete(ws);
         console.log(`🔌 Client disconnected. Total: ${clients.size}`);
     });
+});
+
+// Broadcast binary frames to connected WS clients
+CDP.screenEvents.on('frame', (base64) => {
+    const buf = Buffer.from(base64, 'base64');
+    for (const ws of clients) {
+        if (ws.readyState === WebSocket.OPEN) {
+            ws.send(buf);
+        }
+    }
 });
 
 // ============================================================================

@@ -9,6 +9,9 @@
 
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
+import { EventEmitter } from 'events';
+
+export const screenEvents = new EventEmitter();
 
 const CDP_PORTS = [9222, 9333, 9000, 9001, 9002, 9003];
 let cdpPort = null; // auto-discovered
@@ -307,6 +310,7 @@ async function ensureLive() {
             try { m = JSON.parse(data.toString()); } catch (e) { return; }
             if (m.method === 'Page.screencastFrame') {
                 state.latest = m.params.data;
+                screenEvents.emit('frame', m.params.data);
                 client.send('Page.screencastFrameAck', { sessionId: m.params.sessionId }).catch(() => {});
             }
         });
@@ -348,6 +352,14 @@ export async function getLiveFrame(maxWaitMs = 4000) {
         while (!state.latest && Date.now() - start < maxWaitMs) await sleep(40);
         if (!state.latest) throw new Error('No live frame yet');
         return state.latest;
+    });
+}
+
+/** Keep the screencast running for WebSocket clients. */
+export async function keepScreenAlive() {
+    return withCdpLock(async () => {
+        const state = await ensureLive();
+        state.lastAccess = Date.now();
     });
 }
 

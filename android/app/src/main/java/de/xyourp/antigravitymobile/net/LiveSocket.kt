@@ -1,5 +1,7 @@
 package de.xyourp.antigravitymobile.net
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import de.xyourp.antigravitymobile.data.ConnectionSettings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -19,6 +21,7 @@ import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
+import okio.ByteString
 import java.util.concurrent.TimeUnit
 
 /** One decoded `{event,data,ts}` frame from the bridge WebSocket. */
@@ -38,6 +41,12 @@ class LiveSocket(private val scope: CoroutineScope) {
 
     private val _events = MutableSharedFlow<SocketMessage>(extraBufferCapacity = 64)
     val events: SharedFlow<SocketMessage> = _events.asSharedFlow()
+
+    private val _frames = MutableSharedFlow<Bitmap>(
+        extraBufferCapacity = 2,
+        onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST
+    )
+    val frames: SharedFlow<Bitmap> = _frames.asSharedFlow()
 
     private val _connected = MutableStateFlow(false)
     val connected: StateFlow<Boolean> = _connected.asStateFlow()
@@ -92,6 +101,14 @@ class LiveSocket(private val scope: CoroutineScope) {
 
             override fun onMessage(ws: WebSocket, text: String) {
                 emit(text)
+            }
+
+            override fun onMessage(ws: WebSocket, bytes: ByteString) {
+                val byteArray = bytes.toByteArray()
+                val bitmap = BitmapFactory.decodeByteArray(byteArray, 0, byteArray.size)
+                if (bitmap != null) {
+                    _frames.tryEmit(bitmap)
+                }
             }
 
             override fun onClosing(ws: WebSocket, code: Int, reason: String) {

@@ -50,16 +50,13 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
-import coil.compose.AsyncImagePainter
-import coil.request.CachePolicy
-import coil.request.ImageRequest
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.foundation.Image
 
 @Composable
 fun ScreenScreen(
-    tick: Long,
+    currentFrame: android.graphics.Bitmap?,
     autoRefresh: Boolean,
-    urlFor: (Long) -> String,
     onTap: (Float, Float) -> Unit,
     onMouse: (String, Float, Float, String) -> Unit,
     onScroll: (Float) -> Unit,           // deltaY (uses centre of screen)
@@ -79,19 +76,13 @@ fun ScreenScreen(
             var scale by remember { mutableStateOf(1f) }
             var offset by remember { mutableStateOf(Offset.Zero) }
 
-            val ctx = LocalContext.current
-            val request = remember(tick) {
-                ImageRequest.Builder(ctx)
-                    .data(urlFor(tick))
-                    .memoryCachePolicy(CachePolicy.DISABLED)
-                    .diskCachePolicy(CachePolicy.DISABLED)
-                    .crossfade(false)
-                    .build()
-            }
-
             var everLoaded by remember { mutableStateOf(false) }
-            var errorStreak by remember { mutableStateOf(0) }
-            var lastPainter by remember { mutableStateOf<androidx.compose.ui.graphics.painter.Painter?>(null) }
+            if (currentFrame != null) {
+                everLoaded = true
+                val w = currentFrame.width.toFloat()
+                val h = currentFrame.height.toFloat()
+                if (h > 0) imgAspect = w / h
+            }
 
             Box(
                 Modifier.fillMaxSize()
@@ -141,28 +132,19 @@ fun ScreenScreen(
                     },
                 contentAlignment = Alignment.Center,
             ) {
-                AsyncImage(
-                    model = request,
-                    contentDescription = "Live screen",
-                    contentScale = ContentScale.Fit,
-                    placeholder = lastPainter,
-                    onSuccess = { st ->
-                        everLoaded = true
-                        errorStreak = 0
-                        lastPainter = st.painter
-                        val s = st.painter.intrinsicSize
-                        if (s.isSpecified && s.height > 0) imgAspect = s.width / s.height
-                    },
-                    onError = {
-                        errorStreak += 1
-                    },
-                    modifier = Modifier.fillMaxSize().graphicsLayer(
-                        scaleX = scale, scaleY = scale,
-                        translationX = offset.x, translationY = offset.y,
-                    ),
-                )
+                if (currentFrame != null) {
+                    Image(
+                        bitmap = currentFrame.asImageBitmap(),
+                        contentDescription = "Live screen",
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize().graphicsLayer(
+                            scaleX = scale, scaleY = scale,
+                            translationX = offset.x, translationY = offset.y,
+                        ),
+                    )
+                }
 
-                if (!everLoaded || errorStreak >= 3) {
+                if (!everLoaded || currentFrame == null) {
                     WaitingOverlay(everLoaded)
                 }
             }

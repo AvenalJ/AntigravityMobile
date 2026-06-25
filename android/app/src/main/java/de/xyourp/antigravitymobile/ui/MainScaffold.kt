@@ -80,7 +80,7 @@ fun MainScaffold(repo: AppRepository, onOpenSettings: () -> Unit) {
     val chat by chatVm.state.collectAsStateWithLifecycle()
     val files by filesVm.state.collectAsStateWithLifecycle()
     val git by gitVm.state.collectAsStateWithLifecycle()
-    val screenTick by screenVm.tick.collectAsStateWithLifecycle()
+    val currentFrame by screenVm.currentFrame.collectAsStateWithLifecycle()
     val screenAuto by screenVm.autoRefresh.collectAsStateWithLifecycle()
 
     var tab by remember { mutableStateOf(Tab.Chat) }
@@ -170,9 +170,8 @@ fun MainScaffold(repo: AppRepository, onOpenSettings: () -> Unit) {
                     )
                 }
                 Tab.Screen -> ScreenScreen(
-                    tick = screenTick,
+                    currentFrame = currentFrame,
                     autoRefresh = screenAuto,
-                    urlFor = { screenVm.urlFor(it) },
                     onTap = { x, y -> screenVm.click(x, y) },
                     onMouse = { type, x, y, button -> screenVm.mouse(type, x, y, button) },
                     onScroll = { dy -> screenVm.scroll(0.5f, 0.5f, dy) },
