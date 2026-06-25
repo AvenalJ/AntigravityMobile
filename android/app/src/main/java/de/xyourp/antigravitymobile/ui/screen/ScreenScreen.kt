@@ -70,6 +70,8 @@ fun ScreenScreen(
     cursorAlpha: Float,
     cursorTilt: Float,
     cursorOffsetY: Float,
+    isMouseMode: Boolean,
+    onSetMouseMode: (Boolean) -> Unit,
     onTap: (Float, Float) -> Unit,
     onMouse: (String, Float, Float, String, Float?, Float?) -> Unit,
     onScroll: (Float) -> Unit,           // deltaY (uses centre of screen)
@@ -80,7 +82,7 @@ fun ScreenScreen(
     modifier: Modifier = Modifier,
 ) {
     Column(modifier.fillMaxSize().imePadding()) {
-        var inputMode by remember { mutableStateOf(InputMode.Touch) }
+        val inputMode = if (isMouseMode) InputMode.Mouse else InputMode.Touch
         var virtualCursor by remember { mutableStateOf(Offset(0.5f, 0.5f)) }
         
         val cursorPainter = painterResource(id = R.drawable.cursor_logo)
@@ -262,7 +264,7 @@ fun ScreenScreen(
             }
         }
 
-        ControlBar(inputMode, { inputMode = it }, autoRefresh, onScroll, onSubmit, onKey, onToggleAuto, onRefresh)
+        ControlBar(inputMode, { onSetMouseMode(it == InputMode.Mouse) }, autoRefresh, onScroll, onSubmit, onKey, onToggleAuto, onRefresh)
     }
 }
 

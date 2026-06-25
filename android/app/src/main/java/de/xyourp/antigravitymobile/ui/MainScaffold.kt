@@ -86,6 +86,7 @@ fun MainScaffold(repo: AppRepository, onOpenSettings: () -> Unit) {
     val cursorAlpha by screenVm.cursorAlpha.collectAsStateWithLifecycle()
     val cursorTilt by screenVm.cursorTilt.collectAsStateWithLifecycle()
     val cursorOffsetY by screenVm.cursorOffsetY.collectAsStateWithLifecycle()
+    val isMouseMode by screenVm.isMouseMode.collectAsStateWithLifecycle()
 
     var tab by remember { mutableStateOf(Tab.Chat) }
     var showModelSheet by remember { mutableStateOf(false) }
@@ -180,6 +181,8 @@ fun MainScaffold(repo: AppRepository, onOpenSettings: () -> Unit) {
                     cursorAlpha = cursorAlpha,
                     cursorTilt = cursorTilt,
                     cursorOffsetY = cursorOffsetY,
+                    isMouseMode = isMouseMode,
+                    onSetMouseMode = { screenVm.setMouseMode(it) },
                     onTap = { x, y -> screenVm.click(x, y) },
                     onMouse = { type, x, y, button, dx, dy -> screenVm.mouse(type, x, y, button, dx, dy) },
                     onScroll = { dy -> screenVm.scroll(0.5f, 0.5f, dy) },

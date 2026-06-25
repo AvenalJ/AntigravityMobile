@@ -30,6 +30,7 @@ class ScreenViewModel(private val repo: AppRepository) : ViewModel() {
     val cursorAlpha: StateFlow<Float> = repo.cursorAlpha.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), 1.0f)
     val cursorTilt: StateFlow<Float> = repo.cursorTilt.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), 0f)
     val cursorOffsetY: StateFlow<Float> = repo.cursorOffsetY.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), 0f)
+    val isMouseMode: StateFlow<Boolean> = repo.isMouseMode.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), false)
 
     init {
         viewModelScope.launch {
@@ -50,8 +51,12 @@ class ScreenViewModel(private val repo: AppRepository) : ViewModel() {
         }
     }
 
-    fun setActive(active: Boolean) {
-        _active.value = active
+    fun setActive(b: Boolean) {
+        _active.value = b
+    }
+
+    fun setMouseMode(b: Boolean) {
+        viewModelScope.launch { repo.saveIsMouseMode(b) }
     }
 
     fun toggleAuto() {
