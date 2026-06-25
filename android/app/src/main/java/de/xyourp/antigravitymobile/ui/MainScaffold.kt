@@ -82,6 +82,10 @@ fun MainScaffold(repo: AppRepository, onOpenSettings: () -> Unit) {
     val git by gitVm.state.collectAsStateWithLifecycle()
     val currentFrame by screenVm.currentFrame.collectAsStateWithLifecycle()
     val screenAuto by screenVm.autoRefresh.collectAsStateWithLifecycle()
+    val cursorSize by screenVm.cursorSize.collectAsStateWithLifecycle()
+    val cursorAlpha by screenVm.cursorAlpha.collectAsStateWithLifecycle()
+    val cursorTilt by screenVm.cursorTilt.collectAsStateWithLifecycle()
+    val cursorOffsetY by screenVm.cursorOffsetY.collectAsStateWithLifecycle()
 
     var tab by remember { mutableStateOf(Tab.Chat) }
     var showModelSheet by remember { mutableStateOf(false) }
@@ -172,6 +176,10 @@ fun MainScaffold(repo: AppRepository, onOpenSettings: () -> Unit) {
                 Tab.Screen -> ScreenScreen(
                     currentFrame = currentFrame,
                     autoRefresh = screenAuto,
+                    cursorSize = cursorSize,
+                    cursorAlpha = cursorAlpha,
+                    cursorTilt = cursorTilt,
+                    cursorOffsetY = cursorOffsetY,
                     onTap = { x, y -> screenVm.click(x, y) },
                     onMouse = { type, x, y, button, dx, dy -> screenVm.mouse(type, x, y, button, dx, dy) },
                     onScroll = { dy -> screenVm.scroll(0.5f, 0.5f, dy) },

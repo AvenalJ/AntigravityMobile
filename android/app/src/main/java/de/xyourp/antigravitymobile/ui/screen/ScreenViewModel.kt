@@ -8,6 +8,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 /**
@@ -24,6 +25,11 @@ class ScreenViewModel(private val repo: AppRepository) : ViewModel() {
     val autoRefresh: StateFlow<Boolean> = _auto.asStateFlow()
 
     private val _active = MutableStateFlow(false)
+
+    val cursorSize: StateFlow<Int> = repo.cursorSize.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), 32)
+    val cursorAlpha: StateFlow<Float> = repo.cursorAlpha.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), 1.0f)
+    val cursorTilt: StateFlow<Float> = repo.cursorTilt.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), 0f)
+    val cursorOffsetY: StateFlow<Float> = repo.cursorOffsetY.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), 0f)
 
     init {
         viewModelScope.launch {

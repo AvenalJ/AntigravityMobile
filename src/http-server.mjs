@@ -23,6 +23,7 @@ import { createInterface } from 'readline';
 import { createHash, randomBytes } from 'crypto';
 import multer from 'multer';
 import * as CDP from './cdp-client.mjs';
+import { getAbsoluteViewport } from './cdp-client.mjs';
 import * as ChatStream from './chat-stream.mjs';
 import * as QuotaService from './quota-service.mjs';
 import * as Config from './config.mjs';
@@ -1803,10 +1804,14 @@ app.post('/api/screen/mouse', async (req, res) => {
         else if (type === 'mousePressed') action = 'press';
         else if (type === 'mouseReleased') action = 'release';
         
+        const vp = CDP.getAbsoluteViewport();
+        const absX = vp.x + Number(x) * vp.w;
+        const absY = vp.y + Number(y) * vp.h;
+        
         if (action) {
             mouseInjector.stdin.write(JSON.stringify({ 
                 action, 
-                x: Number(x), y: Number(y), 
+                x: absX, y: absY, 
                 dx: dx !== undefined ? Number(dx) : undefined, 
                 dy: dy !== undefined ? Number(dy) : undefined,
                 button: button || 'left' 

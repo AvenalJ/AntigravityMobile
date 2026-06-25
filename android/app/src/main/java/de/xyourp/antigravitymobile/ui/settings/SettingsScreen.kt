@@ -25,6 +25,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -127,6 +128,39 @@ fun SettingsScreen(
                 is TestResult.Failure -> ResultLine(t.message, ok = false)
                 else -> {}
             }
+
+            Spacer(Modifier.height(24.dp))
+            
+            Text("Virtual Cursor Preferences", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(8.dp))
+            
+            Text("Cursor Size: ${state.cursorSize.toInt()} dp", style = MaterialTheme.typography.bodyMedium)
+            Slider(
+                value = state.cursorSize,
+                onValueChange = { vm.onCursorSize(it) },
+                valueRange = 4f..64f
+            )
+            
+            Text("Cursor Transparency: ${(state.cursorAlpha * 100).toInt()}%", style = MaterialTheme.typography.bodyMedium)
+            Slider(
+                value = state.cursorAlpha,
+                onValueChange = { vm.onCursorAlpha(it) },
+                valueRange = 0.1f..1.0f
+            )
+
+            Text("Cursor Tilt: ${state.cursorTilt.toInt()}°", style = MaterialTheme.typography.bodyMedium)
+            Slider(
+                value = state.cursorTilt,
+                onValueChange = { vm.onCursorTilt(it) },
+                valueRange = -180f..180f
+            )
+
+            Text("Cursor Y-Offset: ${state.cursorOffsetY.toInt()} dp", style = MaterialTheme.typography.bodyMedium)
+            Slider(
+                value = state.cursorOffsetY,
+                onValueChange = { vm.onCursorOffsetY(it) },
+                valueRange = -80f..80f
+            )
 
             Spacer(Modifier.height(24.dp))
 

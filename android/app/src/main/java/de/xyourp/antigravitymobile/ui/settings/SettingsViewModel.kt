@@ -24,6 +24,10 @@ data class SettingsUiState(
     val loaded: Boolean = false,
     val test: TestResult = TestResult.Idle,
     val saved: Boolean = false,
+    val cursorSize: Float = 32f,
+    val cursorAlpha: Float = 1.0f,
+    val cursorTilt: Float = 0f,
+    val cursorOffsetY: Float = 0f,
 )
 
 class SettingsViewModel(private val repo: AppRepository) : ViewModel() {
@@ -34,10 +38,18 @@ class SettingsViewModel(private val repo: AppRepository) : ViewModel() {
     init {
         viewModelScope.launch {
             val s = repo.settings.first()
+            val size = repo.cursorSize.first()
+            val alpha = repo.cursorAlpha.first()
+            val tilt = repo.cursorTilt.first()
+            val offsetY = repo.cursorOffsetY.first()
             _state.value = _state.value.copy(
                 host = s.host,
                 restPort = s.restPort.toString(),
                 wsPort = s.wsPort.toString(),
+                cursorSize = size.toFloat(),
+                cursorAlpha = alpha,
+                cursorTilt = tilt,
+                cursorOffsetY = offsetY,
                 loaded = true,
             )
         }
@@ -46,6 +58,11 @@ class SettingsViewModel(private val repo: AppRepository) : ViewModel() {
     fun onHost(v: String) { _state.value = _state.value.copy(host = v.trim(), test = TestResult.Idle, saved = false) }
     fun onRestPort(v: String) { _state.value = _state.value.copy(restPort = v.filter { it.isDigit() }.take(5), test = TestResult.Idle, saved = false) }
     fun onWsPort(v: String) { _state.value = _state.value.copy(wsPort = v.filter { it.isDigit() }.take(5), test = TestResult.Idle, saved = false) }
+    
+    fun onCursorSize(v: Float) { _state.value = _state.value.copy(cursorSize = v, saved = false) }
+    fun onCursorAlpha(v: Float) { _state.value = _state.value.copy(cursorAlpha = v, saved = false) }
+    fun onCursorTilt(v: Float) { _state.value = _state.value.copy(cursorTilt = v, saved = false) }
+    fun onCursorOffsetY(v: Float) { _state.value = _state.value.copy(cursorOffsetY = v, saved = false) }
 
     private fun build(): ConnectionSettings = ConnectionSettings(
         host = _state.value.host.trim(),
@@ -82,6 +99,10 @@ class SettingsViewModel(private val repo: AppRepository) : ViewModel() {
     fun save(onSaved: () -> Unit) {
         viewModelScope.launch {
             repo.saveConnection(build())
+            repo.saveCursorSize(_state.value.cursorSize.toInt())
+            repo.saveCursorAlpha(_state.value.cursorAlpha)
+            repo.saveCursorTilt(_state.value.cursorTilt)
+            repo.saveCursorOffsetY(_state.value.cursorOffsetY)
             _state.value = _state.value.copy(saved = true)
             onSaved()
         }

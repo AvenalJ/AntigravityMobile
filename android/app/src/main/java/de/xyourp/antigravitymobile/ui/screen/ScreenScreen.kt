@@ -55,6 +55,10 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.foundation.Image
+import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.res.painterResource
+import de.xyourp.antigravitymobile.R
 
 enum class InputMode { Touch, Mouse }
 
@@ -62,6 +66,10 @@ enum class InputMode { Touch, Mouse }
 fun ScreenScreen(
     currentFrame: android.graphics.Bitmap?,
     autoRefresh: Boolean,
+    cursorSize: Int,
+    cursorAlpha: Float,
+    cursorTilt: Float,
+    cursorOffsetY: Float,
     onTap: (Float, Float) -> Unit,
     onMouse: (String, Float, Float, String, Float?, Float?) -> Unit,
     onScroll: (Float) -> Unit,           // deltaY (uses centre of screen)
@@ -74,6 +82,8 @@ fun ScreenScreen(
     Column(modifier.fillMaxSize().imePadding()) {
         var inputMode by remember { mutableStateOf(InputMode.Touch) }
         var virtualCursor by remember { mutableStateOf(Offset(0.5f, 0.5f)) }
+        
+        val cursorPainter = painterResource(id = R.drawable.cursor_logo)
 
         Box(
             Modifier.weight(1f).fillMaxWidth().clipToBounds().background(Color.Black),
@@ -171,8 +181,8 @@ fun ScreenScreen(
                                 val dy = pan.y / (fitH * scale)
                                 
                                 virtualCursor = Offset(
-                                    (virtualCursor.x + dx).coerceIn(0f, 1f),
-                                    (virtualCursor.y + dy).coerceIn(0f, 1f)
+                                    virtualCursor.x + dx,
+                                    virtualCursor.y + dy
                                 )
                                 
                                 // Auto-panning logic: if zoomed in, adjust offset when approaching edges
@@ -201,8 +211,8 @@ fun ScreenScreen(
                                     )
                                 }
                                 
-                                // Provide host dx and dy based on screen movement
-                                onMouse("mouseMoved", virtualCursor.x, virtualCursor.y, "none", pan.x * 2f, pan.y * 2f)
+                                // Provide absolute host position based on virtual cursor
+                                onMouse("mouseMoved", virtualCursor.x, virtualCursor.y, "none", null, null)
                             } else {
                                 scale = (scale * zoom).coerceIn(1f, 5f)
                                 offset = if (scale <= 1.01f) Offset.Zero else offset + pan
@@ -232,17 +242,15 @@ fun ScreenScreen(
                                 val cx = bx + virtualCursor.x * fitW
                                 val cy = by + virtualCursor.y * fitH
                                 
-                                drawCircle(
-                                    color = Color.White,
-                                    radius = 10.dp.toPx(),
-                                    center = Offset(cx, cy)
-                                )
-                                drawCircle(
-                                    color = Color.Black,
-                                    radius = 10.dp.toPx(),
-                                    center = Offset(cx, cy),
-                                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3f)
-                                )
+                                val sizePx = cursorSize.dp.toPx()
+                                val offsetYPx = cursorOffsetY.dp.toPx()
+                                translate(left = cx - sizePx / 2f, top = cy - sizePx / 2f + offsetYPx) {
+                                    rotate(cursorTilt, pivot = androidx.compose.ui.geometry.Offset(sizePx / 2f, sizePx / 2f)) {
+                                        with(cursorPainter) {
+                                            draw(size = androidx.compose.ui.geometry.Size(sizePx, sizePx), alpha = cursorAlpha)
+                                        }
+                                    }
+                                }
                             }
                         },
                     )

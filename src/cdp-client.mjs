@@ -533,17 +533,21 @@ export async function injectAndSubmit(text) {
 // server maps them to the page's CSS viewport.
 // ============================================================================
 
-let cachedViewport = { w: 1280, h: 800 };
+let cachedViewport = { x: 0, y: 0, w: 1280, h: 800 };
+
+export function getAbsoluteViewport() {
+    return cachedViewport;
+}
 
 async function cssViewport(client) {
     // Runtime.evaluate is reliable across these Electron targets; Page.getLayoutMetrics
     // can hang on the 2.0 app, so use innerWidth/innerHeight instead.
     const res = await client.send('Runtime.evaluate', {
-        expression: '({w: window.innerWidth, h: window.innerHeight})',
+        expression: '({x: window.screenLeft * window.devicePixelRatio, y: window.screenTop * window.devicePixelRatio, w: window.innerWidth * window.devicePixelRatio, h: window.innerHeight * window.devicePixelRatio})',
         returnByValue: true,
     });
     const v = res?.result?.value || {};
-    cachedViewport = { w: v.w || 1280, h: v.h || 800 };
+    cachedViewport = { x: v.x || 0, y: v.y || 0, w: v.w || 1280, h: v.h || 800 };
     return cachedViewport;
 }
 
