@@ -120,6 +120,23 @@ data class CommandResponse(
     val error: String? = null,
 )
 
+// --- CDP source (which Antigravity app the bridge mirrors) ---
+
+@Serializable
+data class CdpSource(
+    val id: String,           // "app" (Antigravity 2.0) or "ide"
+    val name: String = "",
+    val port: Int = 0,
+    val available: Boolean = false,
+)
+
+@Serializable
+data class CdpSourcesResponse(
+    val sources: List<CdpSource> = emptyList(),
+    val preference: String = "auto",
+    val activePort: Int? = null,
+)
+
 // --- Repositories ---
 
 @Serializable

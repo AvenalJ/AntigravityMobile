@@ -223,7 +223,8 @@ async function startWorkspacePolling() {
 
     const poll = async () => {
         try {
-            let detectedPath = await CDP.getWorkspacePath();
+            // Serialise with live-screen capture/input so it doesn't stall frames.
+            let detectedPath = await CDP.withCdpLock(() => CDP.getWorkspacePath());
 
             if (!detectedPath) {
                 consecutiveFailures++;
@@ -270,8 +271,9 @@ async function startWorkspacePolling() {
     // Initial check
     await poll();
 
-    // Poll every 5 seconds
-    workspacePollingInterval = setInterval(poll, 5000);
+    // Poll every 20 seconds (kept low-frequency so it doesn't contend with the
+    // live-screen capture/input CDP connections).
+    workspacePollingInterval = setInterval(poll, 20000);
 }
 
 function stopWorkspacePolling() {
@@ -293,6 +295,10 @@ if (!existsSync(SCREENSHOTS_DIR)) mkdirSync(SCREENSHOTS_DIR, { recursive: true }
 let screenshotInterval = null;
 
 function startScreenshotScheduler() {
+    // Disabled: the mobile app now uses the live screencast view instead of a saved
+    // screenshot timeline. Auto-capture via Page.captureScreenshot also hangs on an
+    // idle window and competes with the screencast, so it stays off.
+    return;
     if (screenshotInterval) return;
     if (!Config.getConfig('scheduledScreenshots.enabled')) return;
     screenshotInterval = setInterval(async () => {
@@ -1614,7 +1620,7 @@ app.post('/api/modes/set', async (req, res) => {
 // Get pending approvals
 app.get('/api/approvals', async (req, res) => {
     try {
-        const result = await CDP.getPendingApprovals();
+        const result = await CDP.withCdpLock(() => CDP.getPendingApprovals());
         res.json(result);
     } catch (e) {
         res.json({ pending: false, count: 0, error: e.message });
@@ -1718,6 +1724,66 @@ app.post('/api/workspace/reset', async (req, res) => {
     } catch (e) {
         res.json({ success: false, workspace: workspacePath, error: e.message });
     }
+});
+
+// ============================================================================
+// Source toggle (Antigravity 2.0 app vs IDE) + live-screen tap-to-control
+// ============================================================================
+app.get('/api/cdp/sources', async (req, res) => {
+    try {
+        res.json(await CDP.getSources());
+    } catch (e) {
+        res.json({ sources: [], preference: 'auto', error: e.message });
+    }
+});
+
+app.post('/api/cdp/target', async (req, res) => {
+    try {
+        const { target } = req.body || {};
+        CDP.setCdpPreference(target);           // 'auto' | 'app' | 'ide' (forces rediscovery)
+        ChatStream.stopChatStream();            // drop old connection; re-binds to new source
+        broadcast('source_changed', { target: CDP.getCdpPreference() });
+        res.json(await CDP.getSources());
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Live screen as a lightweight JPEG (via CDP screencast — reliable for idle windows)
+app.get('/api/screen/live.jpg', async (req, res) => {
+    try {
+        const base64 = await CDP.getLiveFrame();
+        res.set('Content-Type', 'image/jpeg');
+        res.set('Cache-Control', 'no-store');
+        res.send(Buffer.from(base64, 'base64'));
+    } catch (e) {
+        res.status(503).json({ error: e.message });
+    }
+});
+
+// Tap-to-control: all coordinates are normalised (0..1) over the page viewport.
+app.post('/api/screen/click', async (req, res) => {
+    try {
+        const { x, y, clickCount } = req.body || {};
+        res.json(await CDP.clickAt(Number(x), Number(y), clickCount || 1));
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+});
+
+app.post('/api/screen/type', async (req, res) => {
+    try { res.json(await CDP.typeText(String(req.body?.text ?? ''))); }
+    catch (e) { res.status(500).json({ success: false, error: e.message }); }
+});
+
+app.post('/api/screen/key', async (req, res) => {
+    try { res.json(await CDP.pressKey(String(req.body?.key ?? ''))); }
+    catch (e) { res.status(500).json({ success: false, error: e.message }); }
+});
+
+app.post('/api/screen/scroll', async (req, res) => {
+    try {
+        const { x, y, deltaY } = req.body || {};
+        res.json(await CDP.scrollAt(Number(x), Number(y), Number(deltaY) || 0));
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
 });
 
 // ============================================================================

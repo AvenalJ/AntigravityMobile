@@ -1,5 +1,6 @@
 package de.xyourp.antigravitymobile.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -10,11 +11,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CallSplit
-import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Cast
 import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
@@ -35,12 +36,16 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -53,14 +58,14 @@ import de.xyourp.antigravitymobile.ui.files.FilesViewModel
 import de.xyourp.antigravitymobile.ui.git.BranchPickerSheet
 import de.xyourp.antigravitymobile.ui.git.GitScreen
 import de.xyourp.antigravitymobile.ui.git.GitViewModel
-import de.xyourp.antigravitymobile.ui.screenshots.ScreenshotsScreen
-import de.xyourp.antigravitymobile.ui.screenshots.ScreenshotsViewModel
+import de.xyourp.antigravitymobile.ui.screen.ScreenScreen
+import de.xyourp.antigravitymobile.ui.screen.ScreenViewModel
 import de.xyourp.antigravitymobile.ui.session.AgentStatus
 import de.xyourp.antigravitymobile.ui.session.SessionViewModel
 import de.xyourp.antigravitymobile.ui.theme.AcceptGreen
 import de.xyourp.antigravitymobile.ui.theme.RejectRed
 
-private enum class Tab(val label: String) { Chat("Chat"), Files("Files"), Git("Git"), Screenshots("Screenshots") }
+private enum class Tab(val label: String) { Chat("Chat"), Files("Files"), Git("Git"), Screen("Screen") }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -69,18 +74,21 @@ fun MainScaffold(repo: AppRepository, onOpenSettings: () -> Unit) {
     val chatVm: ChatViewModel = viewModel(factory = appViewModelFactory { ChatViewModel(repo) })
     val filesVm: FilesViewModel = viewModel(factory = appViewModelFactory { FilesViewModel(repo) })
     val gitVm: GitViewModel = viewModel(factory = appViewModelFactory { GitViewModel(repo) })
-    val screenshotsVm: ScreenshotsViewModel = viewModel(factory = appViewModelFactory { ScreenshotsViewModel(repo) })
+    val screenVm: ScreenViewModel = viewModel(factory = appViewModelFactory { ScreenViewModel(repo) })
 
     val session by sessionVm.state.collectAsStateWithLifecycle()
     val chat by chatVm.state.collectAsStateWithLifecycle()
     val files by filesVm.state.collectAsStateWithLifecycle()
     val git by gitVm.state.collectAsStateWithLifecycle()
-    val screenshots by screenshotsVm.state.collectAsStateWithLifecycle()
+    val screenTick by screenVm.tick.collectAsStateWithLifecycle()
+    val screenAuto by screenVm.autoRefresh.collectAsStateWithLifecycle()
 
     var tab by remember { mutableStateOf(Tab.Chat) }
     var showModelSheet by remember { mutableStateOf(false) }
     var showRepoSheet by remember { mutableStateOf(false) }
     var showBranchSheet by remember { mutableStateOf(false) }
+
+    LaunchedEffect(tab) { screenVm.setActive(tab == Tab.Screen) }
 
     Scaffold(
         topBar = {
@@ -97,7 +105,12 @@ fun MainScaffold(repo: AppRepository, onOpenSettings: () -> Unit) {
                     }
                 },
                 actions = {
-                    TopModelChip(session.currentModel) { showModelSheet = true }
+                    SourceToggle(
+                        preference = session.sourcePreference,
+                        appAvailable = session.sources.any { it.id == "app" && it.available },
+                        ideAvailable = session.sources.any { it.id == "ide" && it.available },
+                        onSelect = { sessionVm.setSource(it) },
+                    )
                     AgentControlsMenu(
                         hasPending = session.pendingApproval != null,
                         onRefreshChat = { chatVm.loadSnapshot(initial = false) },
@@ -112,7 +125,7 @@ fun MainScaffold(repo: AppRepository, onOpenSettings: () -> Unit) {
                 NavigationBarItem(tab == Tab.Chat, { tab = Tab.Chat }, icon = { Icon(Icons.Outlined.ChatBubbleOutline, null) }, label = { Text(Tab.Chat.label) })
                 NavigationBarItem(tab == Tab.Files, { tab = Tab.Files }, icon = { Icon(Icons.Filled.Folder, null) }, label = { Text(Tab.Files.label) })
                 NavigationBarItem(tab == Tab.Git, { tab = Tab.Git }, icon = { Icon(Icons.Filled.CallSplit, null) }, label = { Text(Tab.Git.label) })
-                NavigationBarItem(tab == Tab.Screenshots, { tab = Tab.Screenshots }, icon = { Icon(Icons.Filled.Image, null) }, label = { Text(Tab.Screenshots.label) })
+                NavigationBarItem(tab == Tab.Screen, { tab = Tab.Screen }, icon = { Icon(Icons.Filled.Cast, null) }, label = { Text(Tab.Screen.label) })
             }
         },
     ) { padding ->
@@ -153,11 +166,16 @@ fun MainScaffold(repo: AppRepository, onOpenSettings: () -> Unit) {
                         onOpenBranches = { gitVm.loadBranches(); showBranchSheet = true },
                     )
                 }
-                Tab.Screenshots -> ScreenshotsScreen(
-                    state = screenshots,
-                    imageUrl = { screenshotsVm.imageUrl(it) },
-                    onSelect = { screenshotsVm.select(it) },
-                    onCloseViewer = { screenshotsVm.closeViewer() },
+                Tab.Screen -> ScreenScreen(
+                    tick = screenTick,
+                    autoRefresh = screenAuto,
+                    urlFor = { screenVm.urlFor(it) },
+                    onTap = { x, y -> screenVm.click(x, y) },
+                    onScroll = { dy -> screenVm.scroll(0.5f, 0.5f, dy) },
+                    onSubmit = { screenVm.submit(it) },
+                    onKey = { screenVm.key(it) },
+                    onToggleAuto = { screenVm.toggleAuto() },
+                    onRefresh = { screenVm.refreshNow() },
                 )
             }
         }
@@ -191,6 +209,47 @@ fun MainScaffold(repo: AppRepository, onOpenSettings: () -> Unit) {
             onCheckout = { gitVm.checkout(it, create = false); showBranchSheet = false },
             onCreate = { gitVm.checkout(it, create = true); showBranchSheet = false },
             onDismiss = { showBranchSheet = false },
+        )
+    }
+}
+
+@Composable
+private fun SourceToggle(
+    preference: String,
+    appAvailable: Boolean,
+    ideAvailable: Boolean,
+    onSelect: (String) -> Unit,
+) {
+    // "auto" highlights the app (it's picked first). Tapping selects an explicit source.
+    val selected = if (preference == "ide") "ide" else "app"
+    Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = CircleShape) {
+        Row {
+            SourceSegment("2.0", selected == "app", appAvailable) { onSelect("app") }
+            SourceSegment("IDE", selected == "ide", ideAvailable) { onSelect("ide") }
+        }
+    }
+}
+
+@Composable
+private fun SourceSegment(label: String, selected: Boolean, available: Boolean, onClick: () -> Unit) {
+    val bg = if (selected) MaterialTheme.colorScheme.primary else Color.Transparent
+    val fg = when {
+        selected -> MaterialTheme.colorScheme.onPrimary
+        !available -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+        else -> MaterialTheme.colorScheme.onSurface
+    }
+    val base = Modifier.clip(CircleShape)
+    Surface(
+        color = bg,
+        shape = CircleShape,
+        modifier = if (available) base.clickable(onClick = onClick) else base,
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            color = fg,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
         )
     }
 }
@@ -239,31 +298,6 @@ private fun AgentStatusLabel(status: AgentStatus) {
         AgentStatus.Offline -> RejectRed
     }
     Text(status.label, style = MaterialTheme.typography.labelSmall, color = color, maxLines = 1)
-}
-
-@Composable
-private fun TopModelChip(current: String?, onClick: () -> Unit) {
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        shape = CircleShape,
-        onClick = onClick,
-        modifier = Modifier.widthIn(max = 140.dp),
-    ) {
-        Row(
-            Modifier.padding(start = 12.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                current?.takeIf { it.isNotBlank() } ?: "Model",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false),
-            )
-            Icon(Icons.Filled.ExpandMore, "Change model", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
 }
 
 @Composable

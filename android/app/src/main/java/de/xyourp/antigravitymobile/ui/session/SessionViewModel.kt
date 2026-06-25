@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import de.xyourp.antigravitymobile.data.AppRepository
 import de.xyourp.antigravitymobile.net.ApprovalsResponse
+import de.xyourp.antigravitymobile.net.CdpSource
 import de.xyourp.antigravitymobile.net.Repo
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -31,6 +32,8 @@ data class SessionState(
     val respondingApproval: Boolean = false,
     val repos: List<Repo> = emptyList(),
     val currentRepoPath: String? = null,
+    val sources: List<CdpSource> = emptyList(),
+    val sourcePreference: String = "auto",
 )
 
 /**
@@ -49,6 +52,7 @@ class SessionViewModel(private val repo: AppRepository) : ViewModel() {
         loadWorkspace()
         loadModels()
         loadRepos()
+        loadSources()
         observeSocket()
         pollAgentStatus()
         // Apply the persisted model choice as a fallback display value.
@@ -73,8 +77,28 @@ class SessionViewModel(private val repo: AppRepository) : ViewModel() {
                     refreshApprovals()
                 }
                 "workspace_changed" -> { loadWorkspace(); loadRepos() }
+                "source_changed" -> { loadSources(); loadModels(); loadWorkspace() }
             }
         }.launchIn(viewModelScope)
+    }
+
+    fun loadSources() {
+        viewModelScope.launch {
+            runCatching { repo.api.cdpSources() }.onSuccess { r ->
+                _state.value = _state.value.copy(sources = r.sources, sourcePreference = r.preference)
+            }
+        }
+    }
+
+    /** Switch which Antigravity app the bridge mirrors: "auto" | "app" | "ide". */
+    fun setSource(target: String) {
+        _state.value = _state.value.copy(sourcePreference = target) // optimistic
+        viewModelScope.launch {
+            runCatching { repo.api.setCdpTarget(target) }.onSuccess { r ->
+                _state.value = _state.value.copy(sources = r.sources, sourcePreference = r.preference)
+            }
+            loadModels(); loadWorkspace()
+        }
     }
 
     fun loadRepos() {

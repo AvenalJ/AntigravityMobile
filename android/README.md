@@ -48,14 +48,23 @@ untracked file lists with one-tap **stage / unstage / discard**, colored **diffs
 **commit** of staged changes, and **branch switch / create**. Per project policy there
 is **no push** — commits stay local.
 
-## Viewing Antigravity 2.0 chats
+## Viewing & driving Antigravity 2.0
 
-Your chats live in the **Antigravity 2.0 desktop app** (`Antigravity.exe`), which
-exposes a CDP endpoint the bridge now auto-discovers. The 2.0 app is a React UI with
-hashed CSS classes, so the *text* chat-mirror selectors (built for the IDE's `#cascade`
-panel) don't match it — instead, **view it live through the Screenshots tab** (the
-scheduled/live capture shows the 2.0 window, including open conversations). The Chat
-tab's text mirror still works against an IDE Cascade panel if one is exposed on CDP.
+Your chats live in the **Antigravity 2.0 desktop app** (`Antigravity.exe`), which the
+bridge auto-discovers via its `DevToolsActivePort`. The 2.0 app is a React UI, so the
+*text* chat-mirror (built for the IDE's `#cascade` panel) doesn't apply — instead use
+the **Screen tab**: a live screencast of the 2.0 window with **tap-to-control**, so you
+can read conversations, click, type, and run the agent from your phone. Switch between
+the 2.0 app and the IDE with the top-bar `[2.0 | IDE]` toggle.
+
+### How the live screen works (and why it's reliable)
+`Page.captureScreenshot` blocks until the window composites a frame, so it hangs for an
+idle/background window. Instead the bridge runs a **CDP screencast** (the same mechanism
+DevTools uses), caches the latest frame, and serves it instantly (`GET /api/screen/live.jpg`,
+~0.2 s). Tap-to-control sends input fire-and-forget (`/api/screen/click|scroll|type|key`,
+normalised 0–1 coords) — the screencast briefly yields the single CDP slot for input,
+then resumes. No agent pause/resume API exists, so this live view is how you supervise a
+run; `/api/cdp/target` switches the mirrored source.
 
 ---
 
@@ -67,7 +76,8 @@ tab's text mirror still works against an IDE Cascade panel if one is exposed on 
 | **Files**         | Workspace file tree (`/api/files`), read-only code viewer with lightweight syntax highlighting (`/api/files/content`) |
 | **Git**           | Working tree for the selected repo: branch + ahead/behind, staged / changed / untracked lists, tap-to-view colored diffs, **stage / unstage / discard / commit**, and **branch switch / create** (no push) |
 | **Repositories**  | Pick which repo the Files + Git tabs operate in. Add repo roots by path; selection is remembered server-side and switches the bridge workspace |
-| **Screenshots**   | Vertical timeline of scheduled screenshots with timestamps; tap for full-screen. Also the way to view the **Antigravity 2.0 app** (see below) |
+| **Screen (live + tap-to-control)** | A single auto-refreshing live view of the selected app (CDP screencast), with **pinch-zoom/pan**, **tap to click**, **type + Enter**, scroll, and key buttons (Enter/Backspace/Esc). Replaces the old screenshot timeline. |
+| **Source toggle** | A `[2.0 \| IDE]` segmented control in the top bar switches which app the bridge mirrors. The 2.0 app is auto-discovered; the IDE appears when launched with debugging. |
 | **Model selector**| Bottom-sheet picker from `GET /api/models`, set via `POST /api/models/set`, persisted in DataStore, shown as a chip in the top bar and above the input |
 | **Agent controls**| Top-bar overflow: Refresh chat, Stop current step; status chip in the title |
 | **Settings**      | Tailscale IP + REST/WS ports, **Test Connection**, no login |

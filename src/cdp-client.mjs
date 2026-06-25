@@ -13,29 +13,69 @@ import { join } from 'path';
 const CDP_PORTS = [9222, 9333, 9000, 9001, 9002, 9003];
 let cdpPort = null; // auto-discovered
 let preferredWorkspace = null;
+let cdpPreference = 'auto'; // 'auto' | 'app' (Antigravity 2.0) | 'ide' (Antigravity IDE)
+
+// Which Antigravity app each user-data dir belongs to.
+const APP_DIRS = [
+    { id: 'app', dir: 'Antigravity', name: 'Antigravity 2.0' },
+    { id: 'ide', dir: 'Antigravity IDE', name: 'Antigravity IDE' },
+];
 
 /**
  * The Antigravity desktop apps are Electron/Chromium and write their live remote-
  * debugging port to a `DevToolsActivePort` file in their user-data dir. The port is
- * random per launch, so reading this file is the reliable way to find the running
- * Antigravity 2.0 app (and the IDE, if it was started with debugging).
+ * random per launch, so reading this file is the reliable way to find each running
+ * app (the 2.0 app holds the agent chat; the IDE has the Cascade panel).
  */
-function devToolsPortCandidates() {
-    const ports = [];
+function devToolsSources() {
+    const out = [];
     const roots = [process.env.APPDATA, process.env.LOCALAPPDATA].filter(Boolean);
-    const apps = ['Antigravity', 'Antigravity IDE']; // 2.0 app first (holds the agent chat)
     for (const root of roots) {
-        for (const app of apps) {
+        for (const app of APP_DIRS) {
             try {
-                const f = join(root, app, 'DevToolsActivePort');
+                const f = join(root, app.dir, 'DevToolsActivePort');
                 if (existsSync(f)) {
                     const port = parseInt(readFileSync(f, 'utf-8').split(/\r?\n/)[0].trim());
-                    if (port > 0 && !ports.includes(port)) ports.push(port);
+                    if (port > 0 && !out.find(s => s.port === port)) {
+                        out.push({ id: app.id, name: app.name, port });
+                    }
                 }
             } catch (e) { /* ignore unreadable */ }
         }
     }
-    return ports;
+    return out;
+}
+
+/** Set which app to mirror ('auto' | 'app' | 'ide'); forces rediscovery. */
+export function setCdpPreference(pref) {
+    cdpPreference = ['app', 'ide'].includes(pref) ? pref : 'auto';
+    resetPort();
+}
+
+export function getCdpPreference() {
+    return cdpPreference;
+}
+
+/** Report the discoverable sources, their reachability, and the active one. */
+export async function getSources() {
+    const sources = devToolsSources();
+    const result = [];
+    for (const s of sources) {
+        result.push({ ...s, available: await isCdpReachable(s.port) });
+    }
+    return { sources: result, preference: cdpPreference, activePort: cdpPort };
+}
+
+/** Candidate ports honouring the current preference. */
+function candidatePorts() {
+    const sources = devToolsSources();
+    if (cdpPreference === 'ide') {
+        return [...sources.filter(s => s.id === 'ide').map(s => s.port), 9222];
+    }
+    if (cdpPreference === 'app') {
+        return sources.filter(s => s.id === 'app').map(s => s.port);
+    }
+    return [...sources.map(s => s.port), ...CDP_PORTS];
 }
 
 async function isCdpReachable(port) {
@@ -60,15 +100,14 @@ async function discoverPort() {
         cdpPort = null; // cached port is dead — rediscover
     }
 
-    const candidates = [...devToolsPortCandidates(), ...CDP_PORTS];
-    for (const port of candidates) {
+    for (const port of candidatePorts()) {
         if (await isCdpReachable(port)) {
             cdpPort = port;
-            console.log(`🔌 CDP discovered on port ${port}`);
+            console.log(`🔌 CDP discovered on port ${port} (preference: ${cdpPreference})`);
             return port;
         }
     }
-    throw new Error(`CDP not available (tried DevToolsActivePort + ${CDP_PORTS.join(', ')})`);
+    throw new Error(`CDP not available for preference "${cdpPreference}" (tried DevToolsActivePort + ${CDP_PORTS.join(', ')})`);
 }
 
 function getCdpUrl() {
@@ -94,6 +133,7 @@ export function getActiveDevice() {
  */
 export function resetPort() {
     cdpPort = null;
+    stopLive(); // live screencast points at the old target/port
 }
 
 /**
@@ -177,16 +217,40 @@ export async function connectToTarget(target) {
             let messageId = 1;
             const pending = new Map();
 
+            // Fail the connect attempt if the socket never opens.
+            const connectTimer = setTimeout(() => {
+                try { ws.close(); } catch (e) { }
+                reject(new Error('CDP connect timeout'));
+            }, 8000);
+
             ws.on('open', () => {
+                clearTimeout(connectTimer);
                 const client = {
-                    send: (method, params = {}) => {
+                    send: (method, params = {}, timeoutMs = 10000) => {
                         return new Promise((res, rej) => {
                             const id = messageId++;
-                            pending.set(id, { resolve: res, reject: rej });
+                            // Per-command timeout so a dropped CDP response never hangs forever.
+                            const timer = setTimeout(() => {
+                                if (pending.has(id)) {
+                                    pending.delete(id);
+                                    rej(new Error(`CDP command timeout: ${method}`));
+                                }
+                            }, timeoutMs);
+                            pending.set(id, {
+                                resolve: (v) => { clearTimeout(timer); res(v); },
+                                reject: (e) => { clearTimeout(timer); rej(e); },
+                            });
                             ws.send(JSON.stringify({ id, method, params }));
                         });
                     },
-                    close: () => ws.close(),
+                    // Fire-and-forget: send without awaiting a response. Used for input
+                    // events, whose CDP ack waits on the (possibly idle) renderer and
+                    // would otherwise hang. The effect still happens; we watch the result
+                    // via the live screencast.
+                    sendNoWait: (method, params = {}) => {
+                        ws.send(JSON.stringify({ id: messageId++, method, params }));
+                    },
+                    close: () => { try { ws.close(); } catch (e) { } },
                     ws
                 };
                 resolve(client);
@@ -202,8 +266,105 @@ export async function connectToTarget(target) {
                 }
             });
 
-            ws.on('error', reject);
+            ws.on('error', (e) => { clearTimeout(connectTimer); reject(e); });
         }).catch(reject);
+    });
+}
+
+// Serialise screen capture/input so overlapping CDP connections don't contend
+// (which was causing intermittent multi-second hangs on the 2.0 app).
+let cdpLock = Promise.resolve();
+export function withCdpLock(fn) {
+    const run = cdpLock.then(fn, fn);
+    // keep the chain alive regardless of success/failure
+    cdpLock = run.then(() => {}, () => {});
+    return run;
+}
+
+// ----------------------------------------------------------------------------
+// Live screen via CDP screencast.
+// Page.captureScreenshot blocks until the window composites a frame, so it hangs
+// for an idle/background window. A running screencast forces frame production and
+// delivers the current frame in ~50ms; we keep one running and cache the latest
+// frame so the phone can fetch it instantly. Auto-stops after inactivity.
+// ----------------------------------------------------------------------------
+let live = null;          // { client, latest, lastAccess }
+let liveStarting = null;  // in-flight start guard
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+async function ensureLive() {
+    if (live && live.client.ws.readyState === 1) return live;
+    if (liveStarting) return liveStarting;
+    liveStarting = (async () => {
+        await stopLive();
+        const target = await findEditorTarget();
+        if (!target) throw new Error('No editor target found');
+        const client = await connectToTarget(target);
+        const state = { client, latest: null, lastAccess: Date.now() };
+        // Screencast frames arrive as events (no id); listen alongside the RPC handler.
+        client.ws.on('message', (data) => {
+            let m;
+            try { m = JSON.parse(data.toString()); } catch (e) { return; }
+            if (m.method === 'Page.screencastFrame') {
+                state.latest = m.params.data;
+                client.send('Page.screencastFrameAck', { sessionId: m.params.sessionId }).catch(() => {});
+            }
+        });
+        client.ws.on('close', () => { if (live === state) live = null; });
+        await client.send('Page.enable');
+        await client.send('Page.startScreencast', {
+            format: 'jpeg', quality: 55, everyNthFrame: 1, maxWidth: 1600, maxHeight: 1000,
+        });
+        live = state;
+        return state;
+    })();
+    try { return await liveStarting; }
+    finally { liveStarting = null; }
+}
+
+async function stopLive() {
+    const cur = live;
+    live = null;
+    if (cur) {
+        try { await cur.client.send('Page.stopScreencast'); } catch (e) { }
+        try { cur.client.close(); } catch (e) { }
+    }
+}
+
+/** Get the latest live frame (base64 jpeg); starts the screencast if needed. */
+export async function getLiveFrame(maxWaitMs = 4000) {
+    return withCdpLock(async () => {
+        const state = await ensureLive();
+        state.lastAccess = Date.now();
+        const start = Date.now();
+        while (!state.latest && Date.now() - start < maxWaitMs) await sleep(40);
+        if (!state.latest) throw new Error('No live frame yet');
+        return state.latest;
+    });
+}
+
+// Stop the screencast after 20s of no access (frees the connection).
+setInterval(() => {
+    if (live && Date.now() - live.lastAccess > 20000) stopLive();
+}, 5000).unref?.();
+
+// Input/capture can't run while a screencast holds the (single) CDP slot, so each
+// op stops the live screencast, runs on a fresh connection, then closes — the next
+// getLiveFrame restarts the screencast. withCdpLock serialises this with frame
+// fetches so they never overlap on the 2.0 app's CDP.
+function screenOp(fn) {
+    return withCdpLock(async () => {
+        const wasLive = !!live;
+        await stopLive();
+        if (wasLive) await sleep(250); // let the 2.0 app release the CDP after stopScreencast
+        const target = await findEditorTarget();
+        if (!target) throw new Error('No editor target found');
+        const client = await connectToTarget(target);
+        try {
+            return await fn(client);
+        } finally {
+            client.close();
+        }
     });
 }
 
@@ -212,22 +373,14 @@ export async function connectToTarget(target) {
  * Returns base64-encoded PNG
  */
 export async function captureScreenshot(options = {}) {
-    const target = await findEditorTarget();
-    if (!target) throw new Error('No editor target found');
-
-    const client = await connectToTarget(target);
-
-    try {
-        const result = await client.send('Page.captureScreenshot', {
-            format: options.format || 'png',
-            quality: options.quality || 80,
-            captureBeyondViewport: false
-        });
-
-        return result.data; // base64 string
-    } finally {
-        client.close();
-    }
+  return screenOp(async (client) => {
+    const result = await client.send('Page.captureScreenshot', {
+        format: options.format || 'png',
+        quality: options.quality || 80,
+        captureBeyondViewport: false
+    }, options.timeoutMs || 8000);
+    return result.data; // base64 string
+  });
 }
 
 /**
@@ -351,6 +504,87 @@ export async function injectAndSubmit(text) {
     } finally {
         client.close();
     }
+}
+
+// ============================================================================
+// Tap-to-control — coordinate input injection for the live screen view.
+// Coordinates are NORMALISED (0..1) so they are resolution-independent; the
+// server maps them to the page's CSS viewport.
+// ============================================================================
+
+async function cssViewport(client) {
+    // Runtime.evaluate is reliable across these Electron targets; Page.getLayoutMetrics
+    // can hang on the 2.0 app, so use innerWidth/innerHeight instead.
+    const res = await client.send('Runtime.evaluate', {
+        expression: '({w: window.innerWidth, h: window.innerHeight})',
+        returnByValue: true,
+    });
+    const v = res?.result?.value || {};
+    return { w: v.w || 1280, h: v.h || 800 };
+}
+
+/** Click at a normalised (0..1) point on the mirrored page. */
+export async function clickAt(normX, normY, clickCount = 1) {
+  return screenOp(async (client) => {
+    const { w, h } = await cssViewport(client);
+    const x = Math.max(0, Math.min(1, normX)) * w;
+    const y = Math.max(0, Math.min(1, normY)) * h;
+    client.sendNoWait('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, button: 'none' });
+    client.sendNoWait('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount });
+    client.sendNoWait('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount });
+    await sleep(150); // let the events flush before the connection closes
+    return { success: true, x, y };
+  });
+}
+
+/** Insert literal text at the current focus (after a click). */
+export async function typeText(text) {
+  return screenOp(async (client) => {
+    client.sendNoWait('Input.insertText', { text });
+    await sleep(120);
+    return { success: true };
+  });
+}
+
+const KEY_MAP = {
+    Enter: { code: 'Enter', vk: 13 },
+    Backspace: { code: 'Backspace', vk: 8 },
+    Tab: { code: 'Tab', vk: 9 },
+    Escape: { code: 'Escape', vk: 27 },
+    Delete: { code: 'Delete', vk: 46 },
+    ArrowUp: { code: 'ArrowUp', vk: 38 },
+    ArrowDown: { code: 'ArrowDown', vk: 40 },
+    ArrowLeft: { code: 'ArrowLeft', vk: 37 },
+    ArrowRight: { code: 'ArrowRight', vk: 39 },
+};
+
+/** Press a named special key. */
+export async function pressKey(key) {
+    const k = KEY_MAP[key];
+    if (!k) throw new Error(`Unsupported key: ${key}`);
+  return screenOp(async (client) => {
+    const base = { key, code: k.code, windowsVirtualKeyCode: k.vk, nativeVirtualKeyCode: k.vk };
+    client.sendNoWait('Input.dispatchKeyEvent', { type: 'keyDown', ...base });
+    client.sendNoWait('Input.dispatchKeyEvent', { type: 'keyUp', ...base });
+    await sleep(120);
+    return { success: true };
+  });
+}
+
+/** Mouse-wheel scroll at a normalised point. */
+export async function scrollAt(normX, normY, deltaY) {
+  return screenOp(async (client) => {
+    const { w, h } = await cssViewport(client);
+    client.sendNoWait('Input.dispatchMouseEvent', {
+        type: 'mouseWheel',
+        x: Math.max(0, Math.min(1, normX)) * w,
+        y: Math.max(0, Math.min(1, normY)) * h,
+        deltaX: 0,
+        deltaY,
+    });
+    await sleep(150);
+    return { success: true };
+  });
 }
 
 /**

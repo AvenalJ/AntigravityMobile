@@ -116,6 +116,33 @@ class ApiClient(private val settingsProvider: () -> ConnectionSettings) {
     suspend fun sendCommand(prompt: String): CommandResponse =
         json.decodeFromString(postRaw("/api/commands/execute", bodyOf("prompt", prompt)))
 
+    // --- Source toggle + live screen control ---
+
+    suspend fun cdpSources(): CdpSourcesResponse =
+        json.decodeFromString(getRaw("/api/cdp/sources"))
+
+    suspend fun setCdpTarget(target: String): CdpSourcesResponse =
+        json.decodeFromString(postRaw("/api/cdp/target", bodyOf("target", target)))
+
+    /** Cache-busting URL for the live screen frame (load with Coil). */
+    fun liveScreenUrl(ts: Long): String = settings().restUrl("/api/screen/live.jpg?ts=$ts")
+
+    suspend fun screenClick(x: Double, y: Double) {
+        postRaw("/api/screen/click", buildJsonObject { put("x", x); put("y", y) }.toString())
+    }
+
+    suspend fun screenScroll(x: Double, y: Double, deltaY: Double) {
+        postRaw("/api/screen/scroll", buildJsonObject { put("x", x); put("y", y); put("deltaY", deltaY) }.toString())
+    }
+
+    suspend fun screenType(text: String) {
+        postRaw("/api/screen/type", bodyOf("text", text))
+    }
+
+    suspend fun screenKey(key: String) {
+        postRaw("/api/screen/key", bodyOf("key", key))
+    }
+
     // --- Repositories ---
 
     suspend fun repos(): ReposResponse =
