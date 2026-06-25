@@ -58,9 +58,9 @@ class ScreenViewModel(private val repo: AppRepository) : ViewModel() {
 
     fun click(nx: Float, ny: Float) = input { repo.api.screenClick(nx.toDouble(), ny.toDouble()) }
     
-    fun mouse(type: String, nx: Float, ny: Float, button: String = "none") {
+    fun mouse(type: String, nx: Float, ny: Float, button: String = "none", dx: Float? = null, dy: Float? = null) {
         viewModelScope.launch {
-            runCatching { repo.api.screenMouse(type, nx.toDouble(), ny.toDouble(), button) }
+            runCatching { repo.api.screenMouse(type, nx.toDouble(), ny.toDouble(), button, dx?.toDouble(), dy?.toDouble()) }
         }
     }
 

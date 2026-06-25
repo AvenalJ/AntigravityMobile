@@ -23,6 +23,8 @@ import androidx.compose.material.icons.filled.Backspace
 import androidx.compose.material.icons.filled.DesktopWindows
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Mouse
+import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
@@ -40,6 +42,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.isSpecified
 import androidx.compose.ui.graphics.Color
@@ -53,12 +56,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.foundation.Image
 
+enum class InputMode { Touch, Mouse }
+
 @Composable
 fun ScreenScreen(
     currentFrame: android.graphics.Bitmap?,
     autoRefresh: Boolean,
     onTap: (Float, Float) -> Unit,
-    onMouse: (String, Float, Float, String) -> Unit,
+    onMouse: (String, Float, Float, String, Float?, Float?) -> Unit,
     onScroll: (Float) -> Unit,           // deltaY (uses centre of screen)
     onSubmit: (String) -> Unit,
     onKey: (String) -> Unit,
@@ -67,6 +72,9 @@ fun ScreenScreen(
     modifier: Modifier = Modifier,
 ) {
     Column(modifier.fillMaxSize().imePadding()) {
+        var inputMode by remember { mutableStateOf(InputMode.Touch) }
+        var virtualCursor by remember { mutableStateOf(Offset(0.5f, 0.5f)) }
+
         Box(
             Modifier.weight(1f).fillMaxWidth().clipToBounds().background(Color.Black),
             contentAlignment = Alignment.Center,
@@ -87,47 +95,118 @@ fun ScreenScreen(
             Box(
                 Modifier.fillMaxSize()
                     .onSizeChanged { containerSize = it }
-                    .pointerInput(containerSize, imgAspect) {
-                        detectTapGestures { tap ->
-                            normalize(tap, containerSize, imgAspect, scale, offset)?.let { onTap(it.x, it.y) }
-                        }
-                    }
-                    .pointerInput(containerSize, imgAspect) {
-                        var lastDragPos: Offset? = null
-                        detectDragGestures(
-                            onDragStart = { start ->
-                                lastDragPos = start
-                                normalize(start, containerSize, imgAspect, scale, offset)?.let { 
-                                    onMouse("mousePressed", it.x, it.y, "left") 
+                    .pointerInput(containerSize, imgAspect, inputMode) {
+                        detectTapGestures(
+                            onTap = { tap ->
+                                if (inputMode == InputMode.Mouse) {
+                                    onMouse("mousePressed", virtualCursor.x, virtualCursor.y, "left", null, null)
+                                    onMouse("mouseReleased", virtualCursor.x, virtualCursor.y, "left", null, null)
+                                } else {
+                                    normalize(tap, containerSize, imgAspect, scale, offset)?.let { onTap(it.x, it.y) }
                                 }
                             },
-                            onDragEnd = {
-                                lastDragPos?.let { pos ->
-                                    normalize(pos, containerSize, imgAspect, scale, offset)?.let {
-                                        onMouse("mouseReleased", it.x, it.y, "left")
-                                    }
-                                }
-                            },
-                            onDragCancel = {
-                                lastDragPos?.let { pos ->
-                                    normalize(pos, containerSize, imgAspect, scale, offset)?.let {
-                                        onMouse("mouseReleased", it.x, it.y, "left")
-                                    }
-                                }
-                            },
-                            onDrag = { change, dragAmount ->
-                                change.consume()
-                                lastDragPos = change.position
-                                normalize(change.position, containerSize, imgAspect, scale, offset)?.let {
-                                    onMouse("mouseMoved", it.x, it.y, "left") 
+                            onLongPress = { tap ->
+                                if (inputMode == InputMode.Mouse) {
+                                    onMouse("mousePressed", virtualCursor.x, virtualCursor.y, "right", null, null)
+                                    onMouse("mouseReleased", virtualCursor.x, virtualCursor.y, "right", null, null)
                                 }
                             }
                         )
                     }
                     .pointerInput(Unit) {
+                        awaitPointerEventScope {
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                if (event.changes.size >= 3) {
+                                    val dy = event.changes.map { (it.position.y - it.previousPosition.y).toDouble() }.average().toFloat()
+                                    if (dy != 0f) onScroll(dy * 2f) // Positive drag down = scroll down page = wheel up
+                                    event.changes.forEach { it.consume() }
+                                }
+                            }
+                        }
+                    }
+                    .pointerInput(containerSize, imgAspect, inputMode) {
+                        var lastDragPos: Offset? = null
+                        if (inputMode == InputMode.Touch) {
+                            detectDragGestures(
+                                onDragStart = { start ->
+                                    lastDragPos = start
+                                    normalize(start, containerSize, imgAspect, scale, offset)?.let { 
+                                        onMouse("mousePressed", it.x, it.y, "left", null, null) 
+                                    }
+                                },
+                                onDragEnd = {
+                                    lastDragPos?.let { pos ->
+                                        normalize(pos, containerSize, imgAspect, scale, offset)?.let {
+                                            onMouse("mouseReleased", it.x, it.y, "left", null, null)
+                                        }
+                                    }
+                                },
+                                onDragCancel = {
+                                    lastDragPos?.let { pos ->
+                                        normalize(pos, containerSize, imgAspect, scale, offset)?.let {
+                                            onMouse("mouseReleased", it.x, it.y, "left", null, null)
+                                        }
+                                    }
+                                },
+                                onDrag = { change, dragAmount ->
+                                    change.consume()
+                                    lastDragPos = change.position
+                                    normalize(change.position, containerSize, imgAspect, scale, offset)?.let {
+                                        onMouse("mouseMoved", it.x, it.y, "left", null, null) 
+                                    }
+                                }
+                            )
+                        }
+                    }
+                    .pointerInput(containerSize, imgAspect, inputMode) {
                         detectTransformGestures { _, pan, zoom, _ ->
-                            scale = (scale * zoom).coerceIn(1f, 5f)
-                            offset = if (scale <= 1.01f) Offset.Zero else offset + pan
+                            if (inputMode == InputMode.Mouse && zoom == 1f) {
+                                val cw = containerSize.width.toFloat()
+                                val ch = containerSize.height.toFloat()
+                                val fitW = if (cw / ch > imgAspect) ch * imgAspect else cw
+                                val fitH = if (cw / ch > imgAspect) ch else cw / imgAspect
+                                
+                                val dx = pan.x / (fitW * scale)
+                                val dy = pan.y / (fitH * scale)
+                                
+                                virtualCursor = Offset(
+                                    (virtualCursor.x + dx).coerceIn(0f, 1f),
+                                    (virtualCursor.y + dy).coerceIn(0f, 1f)
+                                )
+                                
+                                // Auto-panning logic: if zoomed in, adjust offset when approaching edges
+                                if (scale > 1f) {
+                                    val screenCursorX = (virtualCursor.x - 0.5f) * (fitW * scale) + (cw / 2f) + offset.x
+                                    val screenCursorY = (virtualCursor.y - 0.5f) * (fitH * scale) + (ch / 2f) + offset.y
+                                    
+                                    val edgeMarginX = cw * 0.15f
+                                    val edgeMarginY = ch * 0.15f
+                                    val panAmountX = cw * 0.05f
+                                    val panAmountY = ch * 0.05f
+                                    
+                                    var newOffsetX = offset.x
+                                    var newOffsetY = offset.y
+                                    
+                                    if (screenCursorX < edgeMarginX) newOffsetX += panAmountX
+                                    if (screenCursorX > cw - edgeMarginX) newOffsetX -= panAmountX
+                                    if (screenCursorY < edgeMarginY) newOffsetY += panAmountY
+                                    if (screenCursorY > ch - edgeMarginY) newOffsetY -= panAmountY
+                                    
+                                    val maxX = ((fitW * scale) - cw).coerceAtLeast(0f) / 2f
+                                    val maxY = ((fitH * scale) - ch).coerceAtLeast(0f) / 2f
+                                    offset = Offset(
+                                        newOffsetX.coerceIn(-maxX, maxX),
+                                        newOffsetY.coerceIn(-maxY, maxY)
+                                    )
+                                }
+                                
+                                // Provide host dx and dy based on screen movement
+                                onMouse("mouseMoved", virtualCursor.x, virtualCursor.y, "none", pan.x * 2f, pan.y * 2f)
+                            } else {
+                                scale = (scale * zoom).coerceIn(1f, 5f)
+                                offset = if (scale <= 1.01f) Offset.Zero else offset + pan
+                            }
                         }
                     },
                 contentAlignment = Alignment.Center,
@@ -140,7 +219,32 @@ fun ScreenScreen(
                         modifier = Modifier.fillMaxSize().graphicsLayer(
                             scaleX = scale, scaleY = scale,
                             translationX = offset.x, translationY = offset.y,
-                        ),
+                        ).drawWithContent {
+                            drawContent()
+                            if (inputMode == InputMode.Mouse) {
+                                val cw = size.width
+                                val ch = size.height
+                                val fitW = if (cw / ch > imgAspect) ch * imgAspect else cw
+                                val fitH = if (cw / ch > imgAspect) ch else cw / imgAspect
+                                val bx = (cw - fitW) / 2f
+                                val by = (ch - fitH) / 2f
+                                
+                                val cx = bx + virtualCursor.x * fitW
+                                val cy = by + virtualCursor.y * fitH
+                                
+                                drawCircle(
+                                    color = Color.White,
+                                    radius = 10.dp.toPx(),
+                                    center = Offset(cx, cy)
+                                )
+                                drawCircle(
+                                    color = Color.Black,
+                                    radius = 10.dp.toPx(),
+                                    center = Offset(cx, cy),
+                                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3f)
+                                )
+                            }
+                        },
                     )
                 }
 
@@ -150,12 +254,14 @@ fun ScreenScreen(
             }
         }
 
-        ControlBar(autoRefresh, onScroll, onSubmit, onKey, onToggleAuto, onRefresh)
+        ControlBar(inputMode, { inputMode = it }, autoRefresh, onScroll, onSubmit, onKey, onToggleAuto, onRefresh)
     }
 }
 
 @Composable
 private fun ControlBar(
+    inputMode: InputMode,
+    onModeChange: (InputMode) -> Unit,
     autoRefresh: Boolean,
     onScroll: (Float) -> Unit,
     onSubmit: (String) -> Unit,
@@ -188,6 +294,12 @@ private fun ControlBar(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                IconButton(onClick = { onModeChange(if (inputMode == InputMode.Touch) InputMode.Mouse else InputMode.Touch) }) {
+                    Icon(
+                        if (inputMode == InputMode.Touch) Icons.Filled.TouchApp else Icons.Filled.Mouse,
+                        "Toggle Input Mode"
+                    )
+                }
                 IconButton(onClick = onToggleAuto) {
                     Icon(
                         if (autoRefresh) Icons.Filled.Pause else Icons.Filled.PlayArrow,

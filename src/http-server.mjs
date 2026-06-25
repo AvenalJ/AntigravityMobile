@@ -14,6 +14,7 @@
 import express from 'express';
 import { networkInterfaces } from 'os';
 import { createServer } from 'http';
+import { spawn } from 'child_process';
 import { WebSocketServer, WebSocket } from 'ws';
 import { join, dirname, extname, basename, resolve } from 'path';
 import { fileURLToPath } from 'url';
@@ -1782,17 +1783,36 @@ app.post('/api/screen/key', async (req, res) => {
     catch (e) { res.status(500).json({ success: false, error: e.message }); }
 });
 
+const mouseInjector = spawn('python', ['src/mouse_injector.py']);
+mouseInjector.stderr.on('data', d => console.error(`MouseInjector: ${d}`));
+
 app.post('/api/screen/scroll', async (req, res) => {
     try {
         const { x, y, deltaY } = req.body || {};
-        res.json(await CDP.scrollAt(Number(x), Number(y), Number(deltaY) || 0));
+        mouseInjector.stdin.write(JSON.stringify({ action: 'scroll', delta: deltaY }) + '\n');
+        res.json({ success: true });
     } catch (e) { res.status(500).json({ success: false, error: e.message }); }
 });
 
 app.post('/api/screen/mouse', async (req, res) => {
     try {
-        const { type, x, y, button } = req.body || {};
-        res.json(await CDP.dispatchMouse(type, Number(x), Number(y), button || 'none'));
+        const { type, x, y, dx, dy, button } = req.body || {};
+        
+        let action = null;
+        if (type === 'mouseMoved') action = 'move';
+        else if (type === 'mousePressed') action = 'press';
+        else if (type === 'mouseReleased') action = 'release';
+        
+        if (action) {
+            mouseInjector.stdin.write(JSON.stringify({ 
+                action, 
+                x: Number(x), y: Number(y), 
+                dx: dx !== undefined ? Number(dx) : undefined, 
+                dy: dy !== undefined ? Number(dy) : undefined,
+                button: button || 'left' 
+            }) + '\n');
+        }
+        res.json({ success: true });
     } catch (e) { res.status(500).json({ success: false, error: e.message }); }
 });
 
