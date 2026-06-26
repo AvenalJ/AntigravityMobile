@@ -37,6 +37,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -97,6 +99,51 @@ fun ScreenScreen(
             var imgAspect by remember { mutableStateOf(1.6f) }
             var scale by remember { mutableStateOf(1f) }
             var offset by remember { mutableStateOf(Offset.Zero) }
+
+            // Continuous, frame-driven edge-pan (RustDesk-style): while the virtual
+            // cursor sits inside an edge margin and we're zoomed in, glide the
+            // viewport every frame at a velocity that grows with how deep the
+            // cursor pushes into the margin. Replaces the old per-event chunked
+            // hops, which stepped instead of gliding.
+            LaunchedEffect(inputMode) {
+                if (inputMode != InputMode.Mouse) return@LaunchedEffect
+                var last = 0L
+                while (true) {
+                    withFrameNanos { now ->
+                        val dt = if (last == 0L) 0f else (now - last) / 1_000_000_000f
+                        last = now
+                        val cw = containerSize.width.toFloat()
+                        val ch = containerSize.height.toFloat()
+                        if (dt > 0f && scale > 1.01f && cw > 0f && ch > 0f) {
+                            val fitW = if (cw / ch > imgAspect) ch * imgAspect else cw
+                            val fitH = if (cw / ch > imgAspect) ch else cw / imgAspect
+                            val curX = (virtualCursor.x - 0.5f) * (fitW * scale) + cw / 2f + offset.x
+                            val curY = (virtualCursor.y - 0.5f) * (fitH * scale) + ch / 2f + offset.y
+                            val marginX = cw * 0.18f
+                            val marginY = ch * 0.18f
+                            val maxSpeed = (cw.coerceAtLeast(ch)) * 1.6f // px/sec at full depth
+
+                            // depth ratio 0..1, squared so it accelerates the deeper you push.
+                            fun ratio(d: Float, m: Float) = (d / m).coerceIn(0f, 1f).let { it * it }
+                            var vx = 0f
+                            var vy = 0f
+                            if (curX < marginX) vx = ratio(marginX - curX, marginX) * maxSpeed
+                            else if (curX > cw - marginX) vx = -ratio(curX - (cw - marginX), marginX) * maxSpeed
+                            if (curY < marginY) vy = ratio(marginY - curY, marginY) * maxSpeed
+                            else if (curY > ch - marginY) vy = -ratio(curY - (ch - marginY), marginY) * maxSpeed
+
+                            if (vx != 0f || vy != 0f) {
+                                val maxX = ((fitW * scale) - cw).coerceAtLeast(0f) / 2f
+                                val maxY = ((fitH * scale) - ch).coerceAtLeast(0f) / 2f
+                                offset = Offset(
+                                    (offset.x + vx * dt).coerceIn(-maxX, maxX),
+                                    (offset.y + vy * dt).coerceIn(-maxY, maxY),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
 
             var everLoaded by remember { mutableStateOf(false) }
             if (currentFrame != null) {
@@ -188,33 +235,11 @@ fun ScreenScreen(
                                     virtualCursor.x + dx,
                                     virtualCursor.y + dy
                                 )
-                                
-                                // Auto-panning logic: if zoomed in, adjust offset when approaching edges
-                                if (scale > 1f) {
-                                    val screenCursorX = (virtualCursor.x - 0.5f) * (fitW * scale) + (cw / 2f) + offset.x
-                                    val screenCursorY = (virtualCursor.y - 0.5f) * (fitH * scale) + (ch / 2f) + offset.y
-                                    
-                                    val edgeMarginX = cw * 0.15f
-                                    val edgeMarginY = ch * 0.15f
-                                    val panAmountX = cw * 0.05f
-                                    val panAmountY = ch * 0.05f
-                                    
-                                    var newOffsetX = offset.x
-                                    var newOffsetY = offset.y
-                                    
-                                    if (screenCursorX < edgeMarginX) newOffsetX += panAmountX
-                                    if (screenCursorX > cw - edgeMarginX) newOffsetX -= panAmountX
-                                    if (screenCursorY < edgeMarginY) newOffsetY += panAmountY
-                                    if (screenCursorY > ch - edgeMarginY) newOffsetY -= panAmountY
-                                    
-                                    val maxX = ((fitW * scale) - cw).coerceAtLeast(0f) / 2f
-                                    val maxY = ((fitH * scale) - ch).coerceAtLeast(0f) / 2f
-                                    offset = Offset(
-                                        newOffsetX.coerceIn(-maxX, maxX),
-                                        newOffsetY.coerceIn(-maxY, maxY)
-                                    )
-                                }
-                                
+
+                                // Edge-panning is handled by a continuous frame-driven loop
+                                // (see LaunchedEffect below) for smooth gliding, instead of
+                                // discrete per-event hops.
+
                                 // Provide absolute host position based on virtual cursor
                                 onMouse("mouseMoved", virtualCursor.x, virtualCursor.y, "none", null, null)
                             } else {
