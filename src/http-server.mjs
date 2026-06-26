@@ -31,6 +31,7 @@ import * as Supervisor from './supervisor-service.mjs';
 import * as OllamaClient from './ollama-client.mjs';
 import * as Git from './git-service.mjs';
 import * as HelperBridge from './helper-bridge.mjs';
+import * as Pairing from './pairing-service.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..');
@@ -1851,10 +1852,26 @@ app.get('/api/screen/live.jpg', async (req, res) => {
     res.send(frame);
 });
 
+// --- One-time device pairing (K2) ---
+// Phone submits the code shown on the PC once; gets a token it stores and sends
+// as `x-device-token` on every input request.
+app.post('/api/pair', (req, res) => {
+    const { code, name } = req.body || {};
+    const token = Pairing.pair(String(code ?? ''), name || 'phone');
+    if (!token) return res.status(401).json({ error: 'invalid_code' });
+    res.json({ success: true, token });
+});
+
+// Whether the presented token is paired (phone shows paired/unpaired state).
+app.get('/api/pair/status', (req, res) => {
+    res.json({ paired: Pairing.isPaired(req.get('x-device-token')) });
+});
+
 // Tap-to-control. Coordinates are normalised (0..1) over the captured desktop;
 // the Rust helper (rustdesk-helper.exe) maps them to absolute pixels for enigo.
 // Full-desktop control replaces the old CDP/window + mouse_injector.py path.
-app.post('/api/screen/click', async (req, res) => {
+// All input routes require a paired device (full-PC-control gate).
+app.post('/api/screen/click', Pairing.requirePaired, async (req, res) => {
     try {
         const x = Number(req.body?.x), y = Number(req.body?.y);
         const count = Number(req.body?.clickCount) || 1;
@@ -1866,14 +1883,14 @@ app.post('/api/screen/click', async (req, res) => {
     } catch (e) { res.status(500).json({ success: false, error: e.message }); }
 });
 
-app.post('/api/screen/type', async (req, res) => {
+app.post('/api/screen/type', Pairing.requirePaired, async (req, res) => {
     try {
         HelperBridge.sendInput({ type: 'text', text: String(req.body?.text ?? '') });
         res.json({ success: true });
     } catch (e) { res.status(500).json({ success: false, error: e.message }); }
 });
 
-app.post('/api/screen/key', async (req, res) => {
+app.post('/api/screen/key', Pairing.requirePaired, async (req, res) => {
     try {
         const { key, ctrl, alt, shift, meta } = req.body || {};
         HelperBridge.sendKeyPress(String(key ?? ''), { ctrl, alt, shift, meta });
@@ -1881,7 +1898,7 @@ app.post('/api/screen/key', async (req, res) => {
     } catch (e) { res.status(500).json({ success: false, error: e.message }); }
 });
 
-app.post('/api/screen/scroll', async (req, res) => {
+app.post('/api/screen/scroll', Pairing.requirePaired, async (req, res) => {
     try {
         const { x, y, deltaY } = req.body || {};
         HelperBridge.sendInput({
@@ -1894,7 +1911,7 @@ app.post('/api/screen/scroll', async (req, res) => {
     } catch (e) { res.status(500).json({ success: false, error: e.message }); }
 });
 
-app.post('/api/screen/mouse', async (req, res) => {
+app.post('/api/screen/mouse', Pairing.requirePaired, async (req, res) => {
     try {
         const { type, x, y, dx, dy, button } = req.body || {};
         const nx = Number(x), ny = Number(y);
@@ -2371,6 +2388,9 @@ HelperBridge.start();
 async function startServer() {
     // Prompt for authentication setup
     await promptForAuth();
+
+    // One-time device pairing (gates full-PC input injection). Prints the code.
+    Pairing.init();
 
     // Set active CDP device from config
     const devices = Config.getConfig('devices') || [];

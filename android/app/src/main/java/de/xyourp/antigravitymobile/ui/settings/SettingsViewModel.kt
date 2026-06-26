@@ -28,6 +28,10 @@ data class SettingsUiState(
     val cursorAlpha: Float = 1.0f,
     val cursorTilt: Float = 0f,
     val cursorOffsetY: Float = 0f,
+    val paired: Boolean = false,
+    val pairCode: String = "",
+    val pairing: Boolean = false,
+    val pairError: String? = null,
 )
 
 class SettingsViewModel(private val repo: AppRepository) : ViewModel() {
@@ -50,7 +54,25 @@ class SettingsViewModel(private val repo: AppRepository) : ViewModel() {
                 cursorAlpha = alpha,
                 cursorTilt = tilt,
                 cursorOffsetY = offsetY,
+                paired = s.deviceToken.isNotBlank(),
                 loaded = true,
+            )
+        }
+    }
+
+    fun onPairCode(v: String) { _state.value = _state.value.copy(pairCode = v.filter { it.isDigit() }.take(6), pairError = null) }
+
+    fun pairDevice() {
+        val code = _state.value.pairCode
+        if (code.length < 6) { _state.value = _state.value.copy(pairError = "Enter the 6-digit code shown on the PC."); return }
+        _state.value = _state.value.copy(pairing = true, pairError = null)
+        viewModelScope.launch {
+            val ok = runCatching { repo.pair(code, android.os.Build.MODEL ?: "phone") }.getOrDefault(false)
+            _state.value = _state.value.copy(
+                pairing = false,
+                paired = ok,
+                pairCode = if (ok) "" else _state.value.pairCode,
+                pairError = if (ok) null else "Pairing failed — check the code and try again.",
             )
         }
     }

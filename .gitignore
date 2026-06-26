@@ -4,9 +4,10 @@ node_modules/
 # Debug/test files
 extra/
 
-# User data
-data/
-uploads/
+# User data (runtime dirs at the repo root only — not nested source packages
+# like the Android `data/` package, which an unanchored `data/` would swallow)
+/data/
+/uploads/
 
 # OS files
 .DS_Store

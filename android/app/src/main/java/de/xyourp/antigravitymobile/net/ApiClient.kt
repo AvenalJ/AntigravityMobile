@@ -52,10 +52,12 @@ class ApiClient(private val settingsProvider: () -> ConnectionSettings) {
     }
 
     private suspend fun postRaw(path: String, jsonBody: String): String = withContext(Dispatchers.IO) {
-        val req = Request.Builder()
+        val builder = Request.Builder()
             .url(settings().restUrl(path))
             .post(jsonBody.toRequestBody(JSON_MEDIA))
-            .build()
+        val token = settings().deviceToken
+        if (token.isNotBlank()) builder.header("x-device-token", token)
+        val req = builder.build()
         client.newCall(req).execute().use { resp ->
             val body = resp.body?.string().orEmpty()
             if (!resp.isSuccessful && body.isBlank()) {
@@ -129,6 +131,17 @@ class ApiClient(private val settingsProvider: () -> ConnectionSettings) {
 
     /** URL of the embeddable web chat page (structured chat + conversation picker). */
     fun webChatUrl(): String = settings().restUrl("/minimal.html")
+
+    /** One-time pairing: submit the code shown on the PC; returns the device token or null. */
+    suspend fun pair(code: String, name: String): String? {
+        val body = postRaw("/api/pair", buildJsonObject { put("code", code); put("name", name) }.toString())
+        return runCatching {
+            json.parseToJsonElement(body).let {
+                (it as? kotlinx.serialization.json.JsonObject)?.get("token")
+                    ?.let { t -> (t as? kotlinx.serialization.json.JsonPrimitive)?.content }
+            }
+        }.getOrNull()
+    }
 
     suspend fun screenClick(x: Double, y: Double) {
         postRaw("/api/screen/click", buildJsonObject { put("x", x); put("y", y) }.toString())

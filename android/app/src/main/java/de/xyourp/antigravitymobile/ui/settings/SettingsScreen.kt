@@ -130,7 +130,44 @@ fun SettingsScreen(
             }
 
             Spacer(Modifier.height(24.dp))
-            
+
+            Text("Remote Control Pairing", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(8.dp))
+            if (state.paired) {
+                ResultLine("This device is paired — full desktop control enabled.", ok = true)
+            } else {
+                Text(
+                    "Enter the 6-digit code shown in the bridge console on your PC to allow this device to control the desktop.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = state.pairCode,
+                    onValueChange = { vm.onPairCode(it) },
+                    label = { Text("Pairing code") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = vm::pairDevice,
+                    enabled = !state.pairing,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    if (state.pairing) {
+                        CircularProgressIndicator(Modifier.height(18.dp).width(18.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(10.dp))
+                        Text("Pairing…")
+                    } else {
+                        Text("Pair Device")
+                    }
+                }
+                state.pairError?.let { ResultLine(it, ok = false) }
+            }
+
+            Spacer(Modifier.height(24.dp))
+
             Text("Virtual Cursor Preferences", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(8.dp))
             
