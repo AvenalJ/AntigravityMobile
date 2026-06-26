@@ -33,7 +33,9 @@ const DEFAULT_CONFIG = {
         theme: 'dark'
     },
     devices: [
-        { name: 'Default', cdpPort: 9222, active: true }
+        // 9333: the helper launches Antigravity 2.0 with --remote-debugging-port=9333
+        // (Edge commonly squats 9222). The bridge still falls back to DevToolsActivePort.
+        { name: 'Default', cdpPort: 9333, active: true }
     ],
     repos: [],  // saved repository roots for the mobile companion's repo picker
     quickCommands: [

@@ -7,6 +7,7 @@
 //
 // Phase 1: launcher/supervisor + localhost WS server, with stub input logging.
 
+mod antigravity;
 mod capture;
 mod input;
 mod protocol;
@@ -49,6 +50,9 @@ async fn main() {
 
     // Native input executor: maps phone InputCommands to real OS mouse/keyboard.
     input::spawn(hub.input_tx.subscribe(), hub.width, hub.height);
+
+    // Bring up the Antigravity 2.0 app with CDP so the Chat tab + source toggle work.
+    antigravity::ensure_running();
 
     // Launch + supervise the Node bridge (one double-click boots everything).
     tokio::spawn(supervisor::supervise_bridge());

@@ -17,7 +17,7 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const CDP_PORT = 9222;
+const CDP_PORT = 9333; // Edge commonly squats 9222; match the helper + bridge config
 const HTTP_PORT = 3001;
 
 // ============================================================================
