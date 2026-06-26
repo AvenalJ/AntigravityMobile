@@ -14,6 +14,7 @@
 import express from 'express';
 import { networkInterfaces } from 'os';
 import { createServer } from 'http';
+import { spawn } from 'child_process';
 import { WebSocketServer, WebSocket } from 'ws';
 import { join, dirname, extname, basename, resolve } from 'path';
 import { fileURLToPath } from 'url';
@@ -1851,6 +1852,81 @@ app.get('/api/screen/live.jpg', async (req, res) => {
     res.set('Cache-Control', 'no-store');
     res.send(frame);
 });
+
+// ============================================================================
+// Project pickers — browse the filesystem for a directory, then open it in the
+// Antigravity 2.0 app (new conversation in that project) or the IDE, each in a
+// new window with CDP so the Chat tab / source toggle can attach.
+// ============================================================================
+
+// Antigravity install discovery (mirrors the Rust helper).
+function findAntigravityExe(kind) {
+    const local = process.env.LOCALAPPDATA || '';
+    const pf = process.env.PROGRAMFILES || '';
+    const sub = kind === 'ide' ? 'Antigravity IDE' : 'Antigravity';
+    const exe = kind === 'ide' ? 'Antigravity IDE.exe' : 'Antigravity.exe';
+    const envOverride = kind === 'ide' ? process.env.ANTIGRAVITY_IDE_PATH : process.env.ANTIGRAVITY_PATH;
+    const candidates = [
+        envOverride,
+        join(local, 'Programs', sub, exe),
+        join(local, sub, exe),
+        join(pf, sub, exe),
+    ].filter(Boolean);
+    return candidates.find(p => existsSync(p)) || null;
+}
+
+// Windows drive roots (C:\, D:\, …) for the top of the directory picker.
+function listDrives() {
+    const drives = [];
+    for (let c = 67; c <= 90; c++) {
+        const root = `${String.fromCharCode(c)}:\\`;
+        if (existsSync(root)) drives.push({ name: root, path: root });
+    }
+    return drives;
+}
+
+// Browse directories anywhere on the machine (dirs only). No path => drive roots.
+app.get('/api/dirs', Pairing.requirePaired, (req, res) => {
+    try {
+        const p = req.query.path;
+        if (!p) return res.json({ path: null, parent: null, dirs: listDrives() });
+
+        const full = resolve(p);
+        if (!existsSync(full) || !statSync(full).isDirectory()) {
+            return res.status(404).json({ error: 'Not a directory' });
+        }
+        const dirs = readdirSync(full, { withFileTypes: true })
+            .filter(e => { try { return e.isDirectory(); } catch (x) { return false; } })
+            .filter(e => e.name !== 'node_modules' && e.name !== '$RECYCLE.BIN')
+            .map(e => ({ name: e.name, path: join(full, e.name) }))
+            .sort((a, b) => a.name.localeCompare(b.name));
+        const up = dirname(full);
+        const parent = up !== full ? up : null; // null at a drive root
+        res.json({ path: full, parent, dirs });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Launch a folder in the 2.0 app (new conversation) or the IDE, new window + CDP.
+function launchAntigravity(kind, dir, res) {
+    if (!dir || !existsSync(dir)) return res.status(400).json({ error: 'Folder does not exist' });
+    const exe = findAntigravityExe(kind);
+    if (!exe) return res.status(404).json({ error: `${kind === 'ide' ? 'Antigravity IDE' : 'Antigravity 2.0'} not found` });
+    const port = kind === 'ide' ? 9334 : 9333;
+    try {
+        spawn(exe, ['-n', dir, `--remote-debugging-port=${port}`], { detached: true, stdio: 'ignore' }).unref();
+        res.json({ success: true, opened: dir, port });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+}
+
+app.post('/api/launch/ide', Pairing.requirePaired, (req, res) =>
+    launchAntigravity('ide', req.body?.path, res));
+
+app.post('/api/launch/conversation', Pairing.requirePaired, (req, res) =>
+    launchAntigravity('app', req.body?.path, res));
 
 // --- One-time device pairing (K2) ---
 // Phone submits the code shown on the PC once; gets a token it stores and sends
