@@ -65,14 +65,18 @@ class SettingsViewModel(private val repo: AppRepository) : ViewModel() {
     fun pairDevice() {
         val code = _state.value.pairCode
         if (code.length < 6) { _state.value = _state.value.copy(pairError = "Enter the 6-digit code shown on the PC."); return }
+        val target = build()
+        if (target.host.isBlank()) { _state.value = _state.value.copy(pairError = "Enter the PC host/IP above first."); return }
         _state.value = _state.value.copy(pairing = true, pairError = null)
         viewModelScope.launch {
-            val ok = runCatching { repo.pair(code, android.os.Build.MODEL ?: "phone") }.getOrDefault(false)
+            // null = success; non-null = human-readable reason.
+            val err = runCatching { repo.pair(target, code, android.os.Build.MODEL ?: "phone") }
+                .getOrElse { it.message ?: "Unexpected error" }
             _state.value = _state.value.copy(
                 pairing = false,
-                paired = ok,
-                pairCode = if (ok) "" else _state.value.pairCode,
-                pairError = if (ok) null else "Pairing failed — check the code and try again.",
+                paired = err == null,
+                pairCode = if (err == null) "" else _state.value.pairCode,
+                pairError = err,
             )
         }
     }

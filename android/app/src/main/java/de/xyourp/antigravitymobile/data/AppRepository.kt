@@ -72,11 +72,20 @@ class AppRepository(private val settingsStore: SettingsStore) {
         settingsStore.saveIsMouseMode(isMouseMode)
     }
 
-    /** Pair this device with the PC using the code shown in the bridge console. */
-    suspend fun pair(code: String, name: String): Boolean {
-        val token = api.pair(code, name) ?: return false
-        settingsStore.saveDeviceToken(token)
-        return true
+    /**
+     * Pair against [target] (the host the user entered/tested). On success,
+     * persists both the connection and the issued token. Returns null on
+     * success, or a human-readable error string on failure.
+     */
+    suspend fun pair(target: ConnectionSettings, code: String, name: String): String? {
+        val out = api.pair(target, code, name)
+        return if (out.ok && out.token != null) {
+            settingsStore.saveConnection(target)   // make sure the paired host is the saved host
+            settingsStore.saveDeviceToken(out.token)
+            null
+        } else {
+            out.detail
+        }
     }
 
     fun isPaired(): Boolean = currentSettings.deviceToken.isNotBlank()

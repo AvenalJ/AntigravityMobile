@@ -132,15 +132,32 @@ class ApiClient(private val settingsProvider: () -> ConnectionSettings) {
     /** URL of the embeddable web chat page (structured chat + conversation picker). */
     fun webChatUrl(): String = settings().restUrl("/minimal.html")
 
-    /** One-time pairing: submit the code shown on the PC; returns the device token or null. */
-    suspend fun pair(code: String, name: String): String? {
-        val body = postRaw("/api/pair", buildJsonObject { put("code", code); put("name", name) }.toString())
-        return runCatching {
-            json.parseToJsonElement(body).let {
-                (it as? kotlinx.serialization.json.JsonObject)?.get("token")
-                    ?.let { t -> (t as? kotlinx.serialization.json.JsonPrimitive)?.content }
+    /**
+     * One-time pairing against an explicit [target] (the host the user just
+     * tested), so it never depends on whether the connection was saved first.
+     */
+    suspend fun pair(target: ConnectionSettings, code: String, name: String): PairOutcome = withContext(Dispatchers.IO) {
+        val bodyJson = buildJsonObject { put("code", code); put("name", name) }.toString()
+        val req = Request.Builder()
+            .url(target.restUrl("/api/pair"))
+            .post(bodyJson.toRequestBody(JSON_MEDIA))
+            .build()
+        try {
+            client.newCall(req).execute().use { resp ->
+                val text = resp.body?.string().orEmpty()
+                val token = runCatching {
+                    (json.parseToJsonElement(text) as? kotlinx.serialization.json.JsonObject)
+                        ?.get("token")?.let { t -> (t as? kotlinx.serialization.json.JsonPrimitive)?.content }
+                }.getOrNull()
+                when {
+                    resp.isSuccessful && !token.isNullOrBlank() -> PairOutcome(true, token, "ok")
+                    resp.code == 401 -> PairOutcome(false, null, "Invalid code — re-check the PC console.")
+                    else -> PairOutcome(false, null, "Server returned HTTP ${resp.code}")
+                }
             }
-        }.getOrNull()
+        } catch (e: Exception) {
+            PairOutcome(false, null, "Couldn't reach ${target.restBaseUrl}: ${e.message ?: "no response"}")
+        }
     }
 
     suspend fun screenClick(x: Double, y: Double) {
@@ -231,6 +248,9 @@ class ApiClient(private val settingsProvider: () -> ConnectionSettings) {
         json.decodeFromString(postRaw("/api/git/checkout", buildJsonObject {
             put("branch", branch); put("create", create)
         }.toString()))
+
+    /** Result of a pairing attempt — [detail] is a human-readable reason on failure. */
+    data class PairOutcome(val ok: Boolean, val token: String?, val detail: String)
 
     private fun bodyOf(key: String, value: String): String =
         buildJsonObject { put(key, value) }.toString()
