@@ -1,6 +1,8 @@
 package de.xyourp.antigravitymobile.ui.screen
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
@@ -76,7 +78,7 @@ fun ScreenScreen(
     onMouse: (String, Float, Float, String, Float?, Float?) -> Unit,
     onScroll: (Float) -> Unit,           // deltaY (uses centre of screen)
     onSubmit: (String) -> Unit,
-    onKey: (String) -> Unit,
+    onKey: (key: String, ctrl: Boolean, alt: Boolean, shift: Boolean, meta: Boolean) -> Unit,
     onToggleAuto: () -> Unit,
     onRefresh: () -> Unit,
     modifier: Modifier = Modifier,
@@ -275,19 +277,48 @@ private fun ControlBar(
     autoRefresh: Boolean,
     onScroll: (Float) -> Unit,
     onSubmit: (String) -> Unit,
-    onKey: (String) -> Unit,
+    onKey: (key: String, ctrl: Boolean, alt: Boolean, shift: Boolean, meta: Boolean) -> Unit,
     onToggleAuto: () -> Unit,
     onRefresh: () -> Unit,
 ) {
     var text by remember { mutableStateOf("") }
+
+    // Sticky modifiers (RustDesk-style): tap to arm, stays armed until tapped off,
+    // and applies to every key fired — including Tab/Esc/arrows and typed letters.
+    var ctrl by remember { mutableStateOf(false) }
+    var alt by remember { mutableStateOf(false) }
+    var shift by remember { mutableStateOf(false) }
+    var meta by remember { mutableStateOf(false) }
+    val anyMod = ctrl || alt || shift || meta
+    val fire: (String) -> Unit = { key -> onKey(key, ctrl, alt, shift, meta) }
+
     Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 2.dp) {
         Column(Modifier.fillMaxWidth().padding(8.dp)) {
+            // Sticky modifier + special-key row (horizontally scrollable).
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(bottom = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                ModChip("Ctrl", ctrl) { ctrl = !ctrl }
+                ModChip("Alt", alt) { alt = !alt }
+                ModChip("Shift", shift) { shift = !shift }
+                ModChip("Win", meta) { meta = !meta }
+                Spacer(Modifier.width(2.dp))
+                KeyChip("Tab") { fire("Tab") }
+                KeyChip("Esc") { fire("Escape") }
+                KeyChip("↑") { fire("ArrowUp") }
+                KeyChip("↓") { fire("ArrowDown") }
+                KeyChip("←") { fire("ArrowLeft") }
+                KeyChip("→") { fire("ArrowRight") }
+                KeyChip("Del") { fire("Delete") }
+            }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(
                     value = text,
                     onValueChange = { text = it },
                     modifier = Modifier.weight(1f),
-                    placeholder = { Text("Type into the focused field…") },
+                    placeholder = { Text(if (anyMod) "Modifier armed — type a key…" else "Type into the focused field…") },
                     shape = RoundedCornerShape(16.dp),
                     maxLines = 4,
                 )
@@ -319,11 +350,37 @@ private fun ControlBar(
                 IconButton(onClick = onRefresh) { Icon(Icons.Filled.Refresh, "Refresh") }
                 IconButton(onClick = { onScroll(-400f) }) { Icon(Icons.Filled.KeyboardArrowUp, "Scroll up") }
                 IconButton(onClick = { onScroll(400f) }) { Icon(Icons.Filled.KeyboardArrowDown, "Scroll down") }
-                IconButton(onClick = { onKey("Enter") }) { Icon(Icons.AutoMirrored.Filled.KeyboardReturn, "Enter") }
-                IconButton(onClick = { onKey("Backspace") }) { Icon(Icons.Filled.Backspace, "Backspace") }
-                IconButton(onClick = { onKey("Escape") }) { Text("Esc", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                IconButton(onClick = { fire("Enter") }) { Icon(Icons.AutoMirrored.Filled.KeyboardReturn, "Enter") }
+                IconButton(onClick = { fire("Backspace") }) { Icon(Icons.Filled.Backspace, "Backspace") }
+                IconButton(onClick = { fire("Escape") }) { Text("Esc", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
         }
+    }
+}
+
+/** A sticky modifier chip — highlighted while armed. */
+@Composable
+private fun ModChip(label: String, active: Boolean, onToggle: () -> Unit) {
+    Surface(
+        onClick = onToggle,
+        shape = RoundedCornerShape(10.dp),
+        color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+        contentColor = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+    ) {
+        Text(label, modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp), style = MaterialTheme.typography.labelLarge)
+    }
+}
+
+/** A momentary special-key chip (fires with whatever modifiers are armed). */
+@Composable
+private fun KeyChip(label: String, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(10.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+    ) {
+        Text(label, modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp), style = MaterialTheme.typography.labelLarge)
     }
 }
 

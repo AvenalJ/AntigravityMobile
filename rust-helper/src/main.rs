@@ -8,13 +8,13 @@
 // Phase 1: launcher/supervisor + localhost WS server, with stub input logging.
 
 mod capture;
+mod input;
 mod protocol;
 mod server;
 mod supervisor;
 
 use std::net::SocketAddr;
 
-use protocol::InputCommand;
 use server::Hub;
 
 /// Localhost port the helper serves on. Override via RUSTDESK_HELPER_PORT.
@@ -31,7 +31,7 @@ async fn main() {
         .unwrap_or(DEFAULT_PORT);
     let addr: SocketAddr = ([127, 0, 0, 1], port).into();
 
-    log::info!("rustdesk-helper starting (phase 2)");
+    log::info!("rustdesk-helper starting (phase 4)");
 
     let mut hub = Hub::new();
 
@@ -47,20 +47,8 @@ async fn main() {
         Err(e) => log::error!("no display to capture: {e} (frames disabled)"),
     }
 
-    // Phase 1 stub: log input commands so we can verify the Node->helper path
-    // end-to-end before enigo lands in Phase 4.
-    {
-        let mut input = hub.input_tx.subscribe();
-        tokio::spawn(async move {
-            loop {
-                match input.recv().await {
-                    Ok(cmd) => log::info!("input (stub): {}", describe(&cmd)),
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
-                    Err(_) => break,
-                }
-            }
-        });
-    }
+    // Native input executor: maps phone InputCommands to real OS mouse/keyboard.
+    input::spawn(hub.input_tx.subscribe(), hub.width, hub.height);
 
     // Launch + supervise the Node bridge (one double-click boots everything).
     tokio::spawn(supervisor::supervise_bridge());
@@ -69,21 +57,5 @@ async fn main() {
     if let Err(e) = server::run(addr, hub).await {
         log::error!("WS server failed: {e}");
         std::process::exit(1);
-    }
-}
-
-fn describe(cmd: &InputCommand) -> String {
-    match cmd {
-        InputCommand::Move { x, y } => format!("move {x:.3},{y:.3}"),
-        InputCommand::Button { button, down, .. } => format!("button {button} down={down}"),
-        InputCommand::Scroll { dx, dy, .. } => format!("scroll {dx:.1},{dy:.1}"),
-        InputCommand::Key { key, down, ctrl, alt, shift, meta } => format!(
-            "key {key} down={down} mods=[{}{}{}{}]",
-            if *ctrl { "C" } else { "" },
-            if *alt { "A" } else { "" },
-            if *shift { "S" } else { "" },
-            if *meta { "W" } else { "" },
-        ),
-        InputCommand::Text { text } => format!("text {:?}", text),
     }
 }

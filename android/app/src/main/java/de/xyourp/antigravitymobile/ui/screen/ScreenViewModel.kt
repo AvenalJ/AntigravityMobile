@@ -77,7 +77,8 @@ class ScreenViewModel(private val repo: AppRepository) : ViewModel() {
 
     fun scroll(nx: Float, ny: Float, deltaY: Float) = input { repo.api.screenScroll(nx.toDouble(), ny.toDouble(), deltaY.toDouble()) }
     fun type(text: String) = input { repo.api.screenType(text) }
-    fun key(name: String) = input { repo.api.screenKey(name) }
+    fun key(name: String, ctrl: Boolean = false, alt: Boolean = false, shift: Boolean = false, meta: Boolean = false) =
+        input { repo.api.screenKey(name, ctrl, alt, shift, meta) }
 
     /** Type [text] then press Enter — the common "send a message to the agent" action. */
     fun submit(text: String) = input {

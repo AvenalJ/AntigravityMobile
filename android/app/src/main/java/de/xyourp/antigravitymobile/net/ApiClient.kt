@@ -154,8 +154,20 @@ class ApiClient(private val settingsProvider: () -> ConnectionSettings) {
         postRaw("/api/screen/type", bodyOf("text", text))
     }
 
-    suspend fun screenKey(key: String) {
-        postRaw("/api/screen/key", bodyOf("key", key))
+    suspend fun screenKey(
+        key: String,
+        ctrl: Boolean = false,
+        alt: Boolean = false,
+        shift: Boolean = false,
+        meta: Boolean = false,
+    ) {
+        postRaw("/api/screen/key", buildJsonObject {
+            put("key", key)
+            if (ctrl) put("ctrl", true)
+            if (alt) put("alt", true)
+            if (shift) put("shift", true)
+            if (meta) put("meta", true)
+        }.toString())
     }
 
     // --- Repositories ---

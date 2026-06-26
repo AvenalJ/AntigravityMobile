@@ -180,7 +180,7 @@ fun MainScaffold(repo: AppRepository, onOpenSettings: () -> Unit) {
                     onMouse = { type, x, y, button, dx, dy -> screenVm.mouse(type, x, y, button, dx, dy) },
                     onScroll = { dy -> screenVm.scroll(0.5f, 0.5f, dy) },
                     onSubmit = { screenVm.submit(it) },
-                    onKey = { screenVm.key(it) },
+                    onKey = { key, ctrl, alt, shift, meta -> screenVm.key(key, ctrl, alt, shift, meta) },
                     onToggleAuto = { screenVm.toggleAuto() },
                     onRefresh = { screenVm.refreshNow() },
                 )
