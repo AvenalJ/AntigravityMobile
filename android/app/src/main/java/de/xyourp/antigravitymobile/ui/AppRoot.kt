@@ -1,10 +1,14 @@
 package de.xyourp.antigravitymobile.ui
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import de.xyourp.antigravitymobile.data.AppRepository
@@ -24,6 +28,27 @@ fun AppRoot(repo: AppRepository) {
     var showSettings by rememberSaveable { mutableStateOf(false) }
 
     val settingsVm: SettingsViewModel = viewModel(factory = appViewModelFactory { SettingsViewModel(repo) })
+
+    // Self-healing connection: when the app returns to the foreground after being
+    // backgrounded, the socket may be dead or stuck in a long reconnect backoff.
+    // Force an immediate fresh reconnect so reopening "just works" without the
+    // user going to Settings → Test Connection.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        var wasBackgrounded = false
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_STOP -> wasBackgrounded = true
+                Lifecycle.Event.ON_START -> if (wasBackgrounded) {
+                    wasBackgrounded = false
+                    repo.socket.reconnectNow()
+                }
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     val current = settings
     when {
