@@ -273,8 +273,15 @@ fun ScreenScreen(
                                 
                                 val sizePx = cursorSize.dp.toPx()
                                 val offsetYPx = cursorOffsetY.dp.toPx()
-                                translate(left = cx - sizePx / 2f, top = cy - sizePx / 2f + offsetYPx) {
-                                    rotate(cursorTilt, pivot = androidx.compose.ui.geometry.Offset(sizePx / 2f, sizePx / 2f)) {
+                                // Cursor hotspot = the logo apex (where green meets red) within
+                                // the 250x250 art: (125.4, 10.4) -> normalised (0.50, 0.042). Pin
+                                // that point to the click position and rotate about it, so the tip
+                                // stays exactly on target regardless of size or tilt.
+                                val hotspotX = 0.502f
+                                val hotspotY = 0.042f
+                                val pivot = androidx.compose.ui.geometry.Offset(hotspotX * sizePx, hotspotY * sizePx)
+                                translate(left = cx - hotspotX * sizePx, top = cy - hotspotY * sizePx + offsetYPx) {
+                                    rotate(cursorTilt, pivot = pivot) {
                                         with(cursorPainter) {
                                             draw(size = androidx.compose.ui.geometry.Size(sizePx, sizePx), alpha = cursorAlpha)
                                         }
