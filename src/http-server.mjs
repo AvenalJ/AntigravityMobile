@@ -14,7 +14,6 @@
 import express from 'express';
 import { networkInterfaces } from 'os';
 import { createServer } from 'http';
-import { spawn } from 'child_process';
 import { WebSocketServer, WebSocket } from 'ws';
 import { join, dirname, extname, basename, resolve } from 'path';
 import { fileURLToPath } from 'url';
@@ -23,7 +22,6 @@ import { createInterface } from 'readline';
 import { createHash, randomBytes } from 'crypto';
 import multer from 'multer';
 import * as CDP from './cdp-client.mjs';
-import { getAbsoluteViewport } from './cdp-client.mjs';
 import * as ChatStream from './chat-stream.mjs';
 import * as QuotaService from './quota-service.mjs';
 import * as Config from './config.mjs';
@@ -32,6 +30,7 @@ import * as Tunnel from './tunnel.mjs';
 import * as Supervisor from './supervisor-service.mjs';
 import * as OllamaClient from './ollama-client.mjs';
 import * as Git from './git-service.mjs';
+import * as HelperBridge from './helper-bridge.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..');
@@ -1843,43 +1842,54 @@ app.post('/api/cdp/target', async (req, res) => {
     }
 });
 
-// Live screen as a lightweight JPEG (via CDP screencast — reliable for idle windows)
+// Live screen as a lightweight JPEG — latest whole-desktop frame from the helper.
 app.get('/api/screen/live.jpg', async (req, res) => {
-    try {
-        const base64 = await CDP.getLiveFrame();
-        res.set('Content-Type', 'image/jpeg');
-        res.set('Cache-Control', 'no-store');
-        res.send(Buffer.from(base64, 'base64'));
-    } catch (e) {
-        res.status(503).json({ error: e.message });
-    }
+    const frame = HelperBridge.getLatestFrame();
+    if (!frame) return res.status(503).json({ error: 'No frame yet (is rustdesk-helper running?)' });
+    res.set('Content-Type', 'image/jpeg');
+    res.set('Cache-Control', 'no-store');
+    res.send(frame);
 });
 
-// Tap-to-control: all coordinates are normalised (0..1) over the page viewport.
+// Tap-to-control. Coordinates are normalised (0..1) over the captured desktop;
+// the Rust helper (rustdesk-helper.exe) maps them to absolute pixels for enigo.
+// Full-desktop control replaces the old CDP/window + mouse_injector.py path.
 app.post('/api/screen/click', async (req, res) => {
     try {
-        const { x, y, clickCount } = req.body || {};
-        res.json(await CDP.clickAt(Number(x), Number(y), clickCount || 1));
+        const x = Number(req.body?.x), y = Number(req.body?.y);
+        const count = Number(req.body?.clickCount) || 1;
+        for (let i = 0; i < count; i++) {
+            HelperBridge.sendInput({ type: 'button', x, y, button: 'left', down: true });
+            HelperBridge.sendInput({ type: 'button', x, y, button: 'left', down: false });
+        }
+        res.json({ success: true });
     } catch (e) { res.status(500).json({ success: false, error: e.message }); }
 });
 
 app.post('/api/screen/type', async (req, res) => {
-    try { res.json(await CDP.typeText(String(req.body?.text ?? ''))); }
-    catch (e) { res.status(500).json({ success: false, error: e.message }); }
+    try {
+        HelperBridge.sendInput({ type: 'text', text: String(req.body?.text ?? '') });
+        res.json({ success: true });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
 });
 
 app.post('/api/screen/key', async (req, res) => {
-    try { res.json(await CDP.pressKey(String(req.body?.key ?? ''))); }
-    catch (e) { res.status(500).json({ success: false, error: e.message }); }
+    try {
+        const { key, ctrl, alt, shift, meta } = req.body || {};
+        HelperBridge.sendKeyPress(String(key ?? ''), { ctrl, alt, shift, meta });
+        res.json({ success: true });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
 });
-
-const mouseInjector = spawn('python', ['src/mouse_injector.py']);
-mouseInjector.stderr.on('data', d => console.error(`MouseInjector: ${d}`));
 
 app.post('/api/screen/scroll', async (req, res) => {
     try {
         const { x, y, deltaY } = req.body || {};
-        mouseInjector.stdin.write(JSON.stringify({ action: 'scroll', delta: deltaY }) + '\n');
+        HelperBridge.sendInput({
+            type: 'scroll',
+            x: x !== undefined ? Number(x) : 0.5,
+            y: y !== undefined ? Number(y) : 0.5,
+            dx: 0, dy: Number(deltaY) || 0,
+        });
         res.json({ success: true });
     } catch (e) { res.status(500).json({ success: false, error: e.message }); }
 });
@@ -1887,24 +1897,13 @@ app.post('/api/screen/scroll', async (req, res) => {
 app.post('/api/screen/mouse', async (req, res) => {
     try {
         const { type, x, y, dx, dy, button } = req.body || {};
-        
-        let action = null;
-        if (type === 'mouseMoved') action = 'move';
-        else if (type === 'mousePressed') action = 'press';
-        else if (type === 'mouseReleased') action = 'release';
-        
-        const vp = CDP.getAbsoluteViewport();
-        const absX = vp.x + Number(x) * vp.w;
-        const absY = vp.y + Number(y) * vp.h;
-        
-        if (action) {
-            mouseInjector.stdin.write(JSON.stringify({ 
-                action, 
-                x: absX, y: absY, 
-                dx: dx !== undefined ? Number(dx) : undefined, 
-                dy: dy !== undefined ? Number(dy) : undefined,
-                button: button || 'left' 
-            }) + '\n');
+        const nx = Number(x), ny = Number(y);
+        if (type === 'mouseMoved') {
+            HelperBridge.sendInput({ type: 'move', x: nx, y: ny });
+        } else if (type === 'mousePressed') {
+            HelperBridge.sendInput({ type: 'button', x: nx, y: ny, button: button || 'left', down: true });
+        } else if (type === 'mouseReleased') {
+            HelperBridge.sendInput({ type: 'button', x: nx, y: ny, button: button || 'left', down: false });
         }
         res.json({ success: true });
     } catch (e) { res.status(500).json({ success: false, error: e.message }); }
@@ -2319,6 +2318,11 @@ wss.on('connection', (ws) => {
         ts: new Date().toISOString()
     }));
 
+    // Paint the latest desktop frame right away (helper streams on-change, so an
+    // idle desktop would otherwise show nothing until the next change).
+    const latestFrame = HelperBridge.getLatestFrame();
+    if (latestFrame) ws.send(latestFrame);
+
     // Handle messages from mobile
     ws.on('message', async (data) => {
         try {
@@ -2333,7 +2337,11 @@ wss.on('connection', (ws) => {
                 const base64 = await CDP.captureScreenshot();
                 ws.send(JSON.stringify({ event: 'screenshot', data: { image: base64 } }));
             } else if (msg.action === 'watch_screen') {
-                await CDP.keepScreenAlive();
+                // The helper streams continuously; just push the latest cached
+                // frame so an idle desktop paints instantly instead of waiting
+                // for the next DXGI change.
+                const latest = HelperBridge.getLatestFrame();
+                if (latest && ws.readyState === WebSocket.OPEN) ws.send(latest);
             }
         } catch (e) {
             ws.send(JSON.stringify({ event: 'error', data: { message: e.message } }));
@@ -2346,15 +2354,16 @@ wss.on('connection', (ws) => {
     });
 });
 
-// Broadcast binary frames to connected WS clients
-CDP.screenEvents.on('frame', (base64) => {
-    const buf = Buffer.from(base64, 'base64');
+// Broadcast binary frames from the Rust helper (whole-desktop capture) to the
+// connected phone WS clients. Replaces the CDP single-window screencast.
+HelperBridge.helperEvents.on('frame', (buf) => {
     for (const ws of clients) {
         if (ws.readyState === WebSocket.OPEN) {
             ws.send(buf);
         }
     }
 });
+HelperBridge.start();
 
 // ============================================================================
 // Start
