@@ -7,6 +7,7 @@
 //
 // Phase 1: launcher/supervisor + localhost WS server, with stub input logging.
 
+mod capture;
 mod protocol;
 mod server;
 mod supervisor;
@@ -30,9 +31,21 @@ async fn main() {
         .unwrap_or(DEFAULT_PORT);
     let addr: SocketAddr = ([127, 0, 0, 1], port).into();
 
-    log::info!("rustdesk-helper starting (phase 1)");
+    log::info!("rustdesk-helper starting (phase 2)");
 
-    let hub = Hub::new();
+    let mut hub = Hub::new();
+
+    // Learn primary-display geometry up front so the Hello event is accurate,
+    // then start whole-desktop capture feeding the frame hub.
+    match capture::primary_geometry() {
+        Ok(geo) => {
+            hub.width = geo.width;
+            hub.height = geo.height;
+            hub.monitor = geo.monitor;
+            capture::spawn(hub.frames_tx.clone(), capture::CaptureOpts::default());
+        }
+        Err(e) => log::error!("no display to capture: {e} (frames disabled)"),
+    }
 
     // Phase 1 stub: log input commands so we can verify the Node->helper path
     // end-to-end before enigo lands in Phase 4.
