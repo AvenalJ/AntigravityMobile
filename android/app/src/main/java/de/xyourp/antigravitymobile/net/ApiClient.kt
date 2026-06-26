@@ -126,6 +126,21 @@ class ApiClient(private val settingsProvider: () -> ConnectionSettings) {
     suspend fun setCdpTarget(target: String): CdpSourcesResponse =
         json.decodeFromString(postRaw("/api/cdp/target", bodyOf("target", target)))
 
+    // --- Project pickers: browse directories + open a folder in the IDE / 2.0 app ---
+
+    suspend fun dirs(path: String?): DirListing {
+        val suffix = if (path.isNullOrBlank()) "/api/dirs" else "/api/dirs?path=${encode(path)}"
+        return json.decodeFromString(getRaw(suffix))
+    }
+
+    suspend fun launchIde(path: String) {
+        postRaw("/api/launch/ide", bodyOf("path", path))
+    }
+
+    suspend fun launchConversation(path: String) {
+        postRaw("/api/launch/conversation", bodyOf("path", path))
+    }
+
     /** Cache-busting URL for the live screen frame (load with Coil). */
     fun liveScreenUrl(ts: Long): String = settings().restUrl("/api/screen/live.jpg?ts=$ts")
 

@@ -120,6 +120,25 @@ class SessionViewModel(private val repo: AppRepository) : ViewModel() {
         }
     }
 
+    /** Open [path] in the Antigravity IDE (new window, CDP enabled). */
+    fun openIde(path: String) {
+        viewModelScope.launch {
+            runCatching { repo.api.launchIde(path) }
+            // Give the IDE a moment to come up, then refresh source availability.
+            kotlinx.coroutines.delay(2500)
+            loadSources()
+        }
+    }
+
+    /** Start a new 2.0 conversation in project [path] (new app window, CDP enabled). */
+    fun newConversation(path: String) {
+        viewModelScope.launch {
+            runCatching { repo.api.launchConversation(path) }
+            kotlinx.coroutines.delay(2500)
+            loadSources()
+        }
+    }
+
     /** Add a repo by path and immediately switch to it. */
     fun addAndSelectRepo(path: String) {
         val p = path.trim()

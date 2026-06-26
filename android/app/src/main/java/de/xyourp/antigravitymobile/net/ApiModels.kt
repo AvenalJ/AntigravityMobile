@@ -18,6 +18,17 @@ data class CdpStatusResponse(
     val error: String? = null,
 )
 
+// Directory picker (GET /api/dirs). `path`/`parent` are null at the drive-root level.
+@Serializable
+data class DirEntry(val name: String, val path: String)
+
+@Serializable
+data class DirListing(
+    val path: String? = null,
+    val parent: String? = null,
+    val dirs: List<DirEntry> = emptyList(),
+)
+
 @Serializable
 data class ChatSnapshot(
     val html: String? = null,

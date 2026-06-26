@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CallSplit
 import androidx.compose.material.icons.filled.Cast
 import androidx.compose.material.icons.filled.Folder
@@ -92,6 +93,8 @@ fun MainScaffold(repo: AppRepository, onOpenSettings: () -> Unit) {
     var showModelSheet by remember { mutableStateOf(false) }
     var showRepoSheet by remember { mutableStateOf(false) }
     var showBranchSheet by remember { mutableStateOf(false) }
+    var showIdePicker by remember { mutableStateOf(false) }
+    var showConvPicker by remember { mutableStateOf(false) }
 
     LaunchedEffect(tab) {
         screenVm.setActive(tab == Tab.Screen)
@@ -118,7 +121,12 @@ fun MainScaffold(repo: AppRepository, onOpenSettings: () -> Unit) {
                         appAvailable = session.sources.any { it.id == "app" && it.available },
                         ideAvailable = session.sources.any { it.id == "ide" && it.available },
                         onSelect = { sessionVm.setSource(it) },
+                        // IDE not running → pick a folder to launch it in.
+                        onOpenIdePicker = { showIdePicker = true },
                     )
+                    IconButton(onClick = { showConvPicker = true }) {
+                        Icon(Icons.Filled.Add, "New 2.0 conversation in a project")
+                    }
                     AgentControlsMenu(
                         hasPending = session.pendingApproval != null,
                         onRefreshChat = { chatVm.loadSnapshot(initial = false) },
@@ -218,6 +226,30 @@ fun MainScaffold(repo: AppRepository, onOpenSettings: () -> Unit) {
             onDismiss = { showBranchSheet = false },
         )
     }
+
+    if (showIdePicker) {
+        DirectoryPickerSheet(
+            title = "Open project in IDE",
+            subtitle = "Pick a folder to open in the Antigravity IDE (new window).",
+            actionLabel = "Open in IDE",
+            startPath = session.currentRepoPath,
+            load = { repo.api.dirs(it) },
+            onPick = { sessionVm.openIde(it); showIdePicker = false },
+            onDismiss = { showIdePicker = false },
+        )
+    }
+
+    if (showConvPicker) {
+        DirectoryPickerSheet(
+            title = "New 2.0 conversation",
+            subtitle = "Pick a project folder. Antigravity 2.0 opens it in a new window for a fresh conversation.",
+            actionLabel = "Start conversation",
+            startPath = session.currentRepoPath,
+            load = { repo.api.dirs(it) },
+            onPick = { sessionVm.newConversation(it); showConvPicker = false },
+            onDismiss = { showConvPicker = false },
+        )
+    }
 }
 
 @Composable
@@ -226,13 +258,17 @@ private fun SourceToggle(
     appAvailable: Boolean,
     ideAvailable: Boolean,
     onSelect: (String) -> Unit,
+    onOpenIdePicker: () -> Unit,
 ) {
     // "auto" highlights the app (it's picked first). Tapping selects an explicit source.
     val selected = if (preference == "ide") "ide" else "app"
     Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = CircleShape) {
         Row {
             SourceSegment("2.0", selected == "app", appAvailable) { onSelect("app") }
-            SourceSegment("IDE", selected == "ide", ideAvailable) { onSelect("ide") }
+            // IDE: select it if it's running, otherwise open the folder picker to launch it.
+            SourceSegment("IDE", selected == "ide", available = true) {
+                if (ideAvailable) onSelect("ide") else onOpenIdePicker()
+            }
         }
     }
 }
