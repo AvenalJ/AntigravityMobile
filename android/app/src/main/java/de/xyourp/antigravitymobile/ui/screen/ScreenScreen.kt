@@ -175,46 +175,86 @@ fun ScreenScreen(
                         )
                     }
                     .pointerInput(Unit) {
+                        // Three-finger scroll. Accumulate raw pixel deltas and only fire once
+                        // we've built up ~40 px — matching the Rust-side divisor (dy/40 = lines)
+                        // so each onScroll call delivers ≥1 meaningful scroll line rather than
+                        // firing on every tiny finger movement.
+                        var scrollAccum = 0f
                         awaitPointerEventScope {
                             while (true) {
                                 val event = awaitPointerEvent()
                                 if (event.changes.size >= 3) {
                                     val dy = event.changes.map { (it.position.y - it.previousPosition.y).toDouble() }.average().toFloat()
-                                    if (dy != 0f) onScroll(dy * 2f) // Positive drag down = scroll down page = wheel up
+                                    scrollAccum += dy
+                                    if (kotlin.math.abs(scrollAccum) >= 40f) {
+                                        onScroll(scrollAccum)
+                                        scrollAccum = 0f
+                                    }
                                     event.changes.forEach { it.consume() }
+                                } else {
+                                    // Fingers lifted — discard any sub-threshold remainder.
+                                    scrollAccum = 0f
                                 }
                             }
                         }
                     }
                     .pointerInput(containerSize, imgAspect, inputMode) {
                         var lastDragPos: Offset? = null
+                        var dragStartPos: Offset? = null
+                        var dragConfirmed = false
+                        // Only confirm a drag once the finger travels this far from the touch-down
+                        // point. Taps that release before the threshold never emit mousePressed,
+                        // preventing the "stuck hold" that happened when a quick tap triggered
+                        // onDragStart (mousePressed) without a reliable paired onDragEnd.
+                        val minDragPx = 12.dp.toPx()
                         if (inputMode == InputMode.Touch) {
                             detectDragGestures(
                                 onDragStart = { start ->
                                     lastDragPos = start
-                                    normalize(start, containerSize, imgAspect, scale, offset)?.let { 
-                                        onMouse("mousePressed", it.x, it.y, "left", null, null) 
-                                    }
+                                    dragStartPos = start
+                                    dragConfirmed = false
                                 },
                                 onDragEnd = {
-                                    lastDragPos?.let { pos ->
-                                        normalize(pos, containerSize, imgAspect, scale, offset)?.let {
-                                            onMouse("mouseReleased", it.x, it.y, "left", null, null)
+                                    if (dragConfirmed) {
+                                        lastDragPos?.let { pos ->
+                                            normalize(pos, containerSize, imgAspect, scale, offset)?.let {
+                                                onMouse("mouseReleased", it.x, it.y, "left", null, null)
+                                            }
                                         }
                                     }
+                                    dragConfirmed = false
+                                    dragStartPos = null
+                                    lastDragPos = null
                                 },
                                 onDragCancel = {
-                                    lastDragPos?.let { pos ->
-                                        normalize(pos, containerSize, imgAspect, scale, offset)?.let {
-                                            onMouse("mouseReleased", it.x, it.y, "left", null, null)
+                                    if (dragConfirmed) {
+                                        lastDragPos?.let { pos ->
+                                            normalize(pos, containerSize, imgAspect, scale, offset)?.let {
+                                                onMouse("mouseReleased", it.x, it.y, "left", null, null)
+                                            }
                                         }
                                     }
+                                    dragConfirmed = false
+                                    dragStartPos = null
+                                    lastDragPos = null
                                 },
-                                onDrag = { change, dragAmount ->
+                                onDrag = { change, _ ->
                                     change.consume()
                                     lastDragPos = change.position
-                                    normalize(change.position, containerSize, imgAspect, scale, offset)?.let {
-                                        onMouse("mouseMoved", it.x, it.y, "left", null, null) 
+                                    if (!dragConfirmed) {
+                                        val origin = dragStartPos ?: change.position
+                                        val delta = change.position - origin
+                                        if (delta.x * delta.x + delta.y * delta.y >= minDragPx * minDragPx) {
+                                            dragConfirmed = true
+                                            normalize(origin, containerSize, imgAspect, scale, offset)?.let {
+                                                onMouse("mousePressed", it.x, it.y, "left", null, null)
+                                            }
+                                        }
+                                    }
+                                    if (dragConfirmed) {
+                                        normalize(change.position, containerSize, imgAspect, scale, offset)?.let {
+                                            onMouse("mouseMoved", it.x, it.y, "left", null, null)
+                                        }
                                     }
                                 }
                             )
