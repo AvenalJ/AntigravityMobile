@@ -4,7 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -62,6 +61,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.res.painterResource
+import kotlinx.coroutines.withTimeoutOrNull
 import de.xyourp.antigravitymobile.R
 
 enum class InputMode { Touch, Mouse }
@@ -157,20 +157,17 @@ fun ScreenScreen(
                 Modifier.fillMaxSize()
                     .onSizeChanged { containerSize = it }
                     .pointerInput(containerSize, imgAspect, inputMode) {
+                        // Mouse mode only: virtual-cursor click and right-click.
+                        // Touch mode tap/hold/drag are handled by the unified handler below.
+                        if (inputMode != InputMode.Mouse) return@pointerInput
                         detectTapGestures(
-                            onTap = { tap ->
-                                if (inputMode == InputMode.Mouse) {
-                                    onMouse("mousePressed", virtualCursor.x, virtualCursor.y, "left", null, null)
-                                    onMouse("mouseReleased", virtualCursor.x, virtualCursor.y, "left", null, null)
-                                } else {
-                                    normalize(tap, containerSize, imgAspect, scale, offset)?.let { onTap(it.x, it.y) }
-                                }
+                            onTap = {
+                                onMouse("mousePressed", virtualCursor.x, virtualCursor.y, "left", null, null)
+                                onMouse("mouseReleased", virtualCursor.x, virtualCursor.y, "left", null, null)
                             },
-                            onLongPress = { tap ->
-                                if (inputMode == InputMode.Mouse) {
-                                    onMouse("mousePressed", virtualCursor.x, virtualCursor.y, "right", null, null)
-                                    onMouse("mouseReleased", virtualCursor.x, virtualCursor.y, "right", null, null)
-                                }
+                            onLongPress = {
+                                onMouse("mousePressed", virtualCursor.x, virtualCursor.y, "right", null, null)
+                                onMouse("mouseReleased", virtualCursor.x, virtualCursor.y, "right", null, null)
                             }
                         )
                     }
@@ -199,65 +196,104 @@ fun ScreenScreen(
                         }
                     }
                     .pointerInput(containerSize, imgAspect, inputMode) {
-                        var lastDragPos: Offset? = null
-                        var dragStartPos: Offset? = null
-                        var dragConfirmed = false
-                        // Only confirm a drag once the finger travels this far from the touch-down
-                        // point. Taps that release before the threshold never emit mousePressed,
-                        // preventing the "stuck hold" that happened when a quick tap triggered
-                        // onDragStart (mousePressed) without a reliable paired onDragEnd.
-                        val minDragPx = 12.dp.toPx()
-                        if (inputMode == InputMode.Touch) {
-                            detectDragGestures(
-                                onDragStart = { start ->
-                                    lastDragPos = start
-                                    dragStartPos = start
-                                    dragConfirmed = false
-                                },
-                                onDragEnd = {
-                                    if (dragConfirmed) {
-                                        lastDragPos?.let { pos ->
-                                            normalize(pos, containerSize, imgAspect, scale, offset)?.let {
-                                                onMouse("mouseReleased", it.x, it.y, "left", null, null)
-                                            }
+                        if (inputMode != InputMode.Touch) return@pointerInput
+                        // Unified Touch-mode gesture handler:
+                        //   • Quick lift  (<500 ms, <12 dp)   → tap / click
+                        //   • Drag        (moves ≥12 dp)       → mousePressed + move + mouseReleased
+                        //   • Hold        (500 ms stationary)  → mousePressed held until finger lifts
+                        //   • 2-finger hold 2 s                → right-click at centroid
+                        val holdDelayMs     = 500L
+                        val rightClickMs    = 2000L
+                        val minDragPxSq     = 12.dp.toPx().let { it * it }
+
+                        awaitPointerEventScope {
+                            while (true) {
+                                val ev = awaitPointerEvent()
+                                val fresh = ev.changes.filter { it.pressed && !it.previousPressed }
+                                if (fresh.isEmpty()) continue
+                                val allPressed = ev.changes.filter { it.pressed }
+
+                                // ── Two-finger right-click ──────────────────────────────
+                                if (allPressed.size == 2) {
+                                    val ids = allPressed.map { it.id }.toSet()
+                                    val pts = allPressed.map { it.position }
+                                    val centroid = Offset((pts[0].x + pts[1].x) / 2f, (pts[0].y + pts[1].y) / 2f)
+
+                                    // withTimeoutOrNull returns null on 2-s timeout (= right-click),
+                                    // or false if fingers lifted first (= no action).
+                                    val rightClick = withTimeoutOrNull(rightClickMs) {
+                                        var held = true
+                                        while (held) {
+                                            val e = awaitPointerEvent()
+                                            if (e.changes.count { it.pressed && it.id in ids } < 2) held = false
+                                        }
+                                        false
+                                    } == null
+
+                                    if (rightClick) {
+                                        normalize(centroid, containerSize, imgAspect, scale, offset)?.let {
+                                            onMouse("mousePressed",  it.x, it.y, "right", null, null)
+                                            onMouse("mouseReleased", it.x, it.y, "right", null, null)
+                                        }
+                                        // Drain until both fingers lift so the outer loop starts clean.
+                                        while (true) {
+                                            val e = awaitPointerEvent()
+                                            if (e.changes.none { it.pressed && it.id in ids }) break
+                                            e.changes.forEach { it.consume() }
                                         }
                                     }
-                                    dragConfirmed = false
-                                    dragStartPos = null
-                                    lastDragPos = null
-                                },
-                                onDragCancel = {
-                                    if (dragConfirmed) {
-                                        lastDragPos?.let { pos ->
-                                            normalize(pos, containerSize, imgAspect, scale, offset)?.let {
-                                                onMouse("mouseReleased", it.x, it.y, "left", null, null)
+
+                                // ── Single-finger tap / hold / drag ────────────────────
+                                } else if (allPressed.size == 1) {
+                                    val ptrId   = allPressed.first().id
+                                    val downPos = allPressed.first().position
+                                    var curPos  = downPos
+
+                                    // Phase 1: race between drag-threshold, lift, and 500-ms hold timeout.
+                                    var p1Label: String? = null
+                                    val phase1 = withTimeoutOrNull(holdDelayMs) {
+                                        while (p1Label == null) {
+                                            val e = awaitPointerEvent()
+                                            val p = e.changes.firstOrNull { it.id == ptrId } ?: continue
+                                            curPos = p.position
+                                            if (!p.pressed) {
+                                                p1Label = "tap"
+                                            } else {
+                                                val d = p.position - downPos
+                                                if (d.x * d.x + d.y * d.y >= minDragPxSq) p1Label = "drag"
                                             }
                                         }
-                                    }
-                                    dragConfirmed = false
-                                    dragStartPos = null
-                                    lastDragPos = null
-                                },
-                                onDrag = { change, _ ->
-                                    change.consume()
-                                    lastDragPos = change.position
-                                    if (!dragConfirmed) {
-                                        val origin = dragStartPos ?: change.position
-                                        val delta = change.position - origin
-                                        if (delta.x * delta.x + delta.y * delta.y >= minDragPx * minDragPx) {
-                                            dragConfirmed = true
-                                            normalize(origin, containerSize, imgAspect, scale, offset)?.let {
-                                                onMouse("mousePressed", it.x, it.y, "left", null, null)
-                                            }
+                                        p1Label!!
+                                    } ?: "hold"
+
+                                    if (phase1 == "tap") {
+                                        normalize(downPos, containerSize, imgAspect, scale, offset)?.let {
+                                            onTap(it.x, it.y)
                                         }
-                                    }
-                                    if (dragConfirmed) {
-                                        normalize(change.position, containerSize, imgAspect, scale, offset)?.let {
-                                            onMouse("mouseMoved", it.x, it.y, "left", null, null)
+                                    } else {
+                                        // drag or hold: commit the press at the original touch-down point,
+                                        // then track movement until the finger lifts.
+                                        normalize(downPos, containerSize, imgAspect, scale, offset)?.let {
+                                            onMouse("mousePressed", it.x, it.y, "left", null, null)
+                                        }
+                                        while (true) {
+                                            val e = awaitPointerEvent()
+                                            val p = e.changes.firstOrNull { it.id == ptrId }
+                                            if (p == null || !p.pressed) {
+                                                normalize(curPos, containerSize, imgAspect, scale, offset)?.let {
+                                                    onMouse("mouseReleased", it.x, it.y, "left", null, null)
+                                                }
+                                                break
+                                            }
+                                            curPos = p.position
+                                            normalize(curPos, containerSize, imgAspect, scale, offset)?.let {
+                                                onMouse("mouseMoved", it.x, it.y, "left", null, null)
+                                            }
+                                            e.changes.forEach { it.consume() }
                                         }
                                     }
                                 }
-                            )
+                            }
                         }
                     }
                     .pointerInput(containerSize, imgAspect, inputMode) {
