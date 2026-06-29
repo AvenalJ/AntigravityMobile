@@ -31,6 +31,27 @@ let geometry = { width: 0, height: 0, monitor: 0 };
 let pairingCode = null;
 let latestFrame = null; // last JPEG Buffer, for instant first paint on idle desktops
 
+// Outbound queue for keystroke/text commands that arrive while the helper WS is
+// mid-reconnect (backoff up to 10 s). Without this, typing "sometimes does
+// nothing" because the command is silently dropped during the gap. We queue ONLY
+// text/key (the input field): they're order- but not time-sensitive, so flushing
+// them a moment late is correct. Mouse move/button/scroll are position- and
+// time-sensitive, so we never replay stale ones — they're dropped if offline.
+const QUEUEABLE = new Set(['text', 'key']);
+const PENDING_TTL_MS = 8000;
+const PENDING_MAX = 50;
+let pending = []; // [{ cmd, at }]
+
+function flushPending() {
+    if (!connected || !ws || pending.length === 0) return;
+    const now = Date.now();
+    const due = pending.filter((p) => now - p.at <= PENDING_TTL_MS);
+    pending = [];
+    for (const p of due) {
+        try { ws.send(JSON.stringify(p.cmd)); } catch (e) { /* dropped on send error */ }
+    }
+}
+
 function connect() {
     ws = new WebSocket(HELPER_URL);
 
@@ -39,6 +60,7 @@ function connect() {
         backoff = 500;
         console.log(`🖥️  Connected to rustdesk-helper at ${HELPER_URL}`);
         helperEvents.emit('status', { connected: true });
+        flushPending(); // deliver keystrokes typed during the reconnect gap
     });
 
     ws.on('message', (data, isBinary) => {
@@ -77,22 +99,40 @@ export function start() {
     connect();
 }
 
-/** Forward an InputCommand to the helper. No-op (logged) if not connected. */
+/**
+ * Forward an InputCommand to the helper.
+ * Returns true if the command was sent or queued for imminent delivery, false if
+ * it was dropped (helper offline and the command is not queueable). Callers can
+ * surface `false` instead of pretending the input landed.
+ */
 export function sendInput(cmd) {
-    if (!connected || !ws) return false;
-    try {
-        ws.send(JSON.stringify(cmd));
-        return true;
-    } catch (e) {
-        return false;
+    if (connected && ws) {
+        try {
+            ws.send(JSON.stringify(cmd));
+            return true;
+        } catch (e) {
+            // fall through to queue attempt below
+        }
     }
+    // Offline (or send failed): queue keystrokes/text so a brief helper
+    // reconnect doesn't silently swallow what the user typed.
+    if (cmd && QUEUEABLE.has(cmd.type)) {
+        pending.push({ cmd, at: Date.now() });
+        if (pending.length > PENDING_MAX) pending.shift();
+        return true;
+    }
+    return false;
 }
 
-/** Press-and-release a key with optional modifiers (chip row, Phase 4). */
+/**
+ * Press-and-release a key with optional modifiers (chip row, Phase 4).
+ * Returns true if both events were sent or queued.
+ */
 export function sendKeyPress(key, mods = {}) {
     const base = { type: 'key', key, ctrl: !!mods.ctrl, alt: !!mods.alt, shift: !!mods.shift, meta: !!mods.meta };
-    sendInput({ ...base, down: true });
-    sendInput({ ...base, down: false });
+    const a = sendInput({ ...base, down: true });
+    const b = sendInput({ ...base, down: false });
+    return a && b;
 }
 
 export function isConnected() { return connected; }

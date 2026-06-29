@@ -60,7 +60,9 @@ class ApiClient(private val settingsProvider: () -> ConnectionSettings) {
         val req = builder.build()
         client.newCall(req).execute().use { resp ->
             val body = resp.body?.string().orEmpty()
-            if (!resp.isSuccessful && body.isBlank()) {
+            // Surface any non-2xx as an error so callers (e.g. screen type/key) can
+            // react instead of mistaking a 503 "helper not connected" for success.
+            if (!resp.isSuccessful) {
                 throw IOException("HTTP ${resp.code} for $path")
             }
             body

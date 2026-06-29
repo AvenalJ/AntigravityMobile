@@ -5,8 +5,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import de.xyourp.antigravitymobile.data.AppRepository
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -25,6 +28,10 @@ class ScreenViewModel(private val repo: AppRepository) : ViewModel() {
     val autoRefresh: StateFlow<Boolean> = _auto.asStateFlow()
 
     private val _active = MutableStateFlow(false)
+
+    /** One-shot user-facing errors (e.g. input failed to reach the remote). */
+    private val _errors = MutableSharedFlow<String>(extraBufferCapacity = 4)
+    val errors: SharedFlow<String> = _errors.asSharedFlow()
 
     val cursorSize: StateFlow<Int> = repo.cursorSize.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), 32)
     val cursorAlpha: StateFlow<Float> = repo.cursorAlpha.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), 1.0f)
@@ -76,19 +83,49 @@ class ScreenViewModel(private val repo: AppRepository) : ViewModel() {
     }
 
     fun scroll(nx: Float, ny: Float, deltaY: Float) = input { repo.api.screenScroll(nx.toDouble(), ny.toDouble(), deltaY.toDouble()) }
-    fun type(text: String) = input { repo.api.screenType(text) }
+    fun type(text: String) = guarded("Couldn't send text to the PC") { repo.api.screenType(text) }
     fun key(name: String, ctrl: Boolean = false, alt: Boolean = false, shift: Boolean = false, meta: Boolean = false) =
-        input { repo.api.screenKey(name, ctrl, alt, shift, meta) }
+        guarded("Couldn't send key to the PC") { repo.api.screenKey(name, ctrl, alt, shift, meta) }
 
-    /** Type [text] then press Enter — the common "send a message to the agent" action. */
-    fun submit(text: String) = input {
-        repo.api.screenType(text)
-        repo.api.screenKey("Enter")
+    /**
+     * Type [text] then press Enter — the common "send a message to the agent".
+     * Each step is retried independently so a half-delivered Send never re-types
+     * the text; if either step still can't reach the remote, the user is told.
+     */
+    fun submit(text: String) {
+        viewModelScope.launch {
+            if (!attempt { repo.api.screenType(text) }) {
+                _errors.tryEmit("Couldn't send your message to the PC")
+                return@launch
+            }
+            if (!attempt { repo.api.screenKey("Enter") }) {
+                _errors.tryEmit("Message typed, but Enter didn't reach the PC")
+            }
+        }
     }
 
+    /** Run [block], retrying once after a short delay. Returns true if it succeeded. */
+    private suspend fun attempt(block: suspend () -> Unit): Boolean {
+        if (runCatching { block() }.isSuccess) return true
+        delay(300)
+        return runCatching { block() }.isSuccess
+    }
+
+    /** Fire-and-forget for non-critical input (mouse moves etc.); failures are ignored. */
     private fun input(block: suspend () -> Unit) {
         viewModelScope.launch {
             runCatching { block() }
+        }
+    }
+
+    /**
+     * Run a critical input action (typing/keys), retrying once, and surface
+     * [errorMsg] to the user if it still doesn't reach the remote — so a dropped
+     * keystroke is never silent.
+     */
+    private fun guarded(errorMsg: String, block: suspend () -> Unit) {
+        viewModelScope.launch {
+            if (!attempt(block)) _errors.tryEmit(errorMsg)
         }
     }
 }

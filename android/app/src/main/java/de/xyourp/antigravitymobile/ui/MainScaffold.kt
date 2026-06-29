@@ -33,6 +33,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -50,6 +52,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.flow.first
 import androidx.lifecycle.viewmodel.compose.viewModel
 import de.xyourp.antigravitymobile.data.AppRepository
 import de.xyourp.antigravitymobile.ui.chat.ChatScreen
@@ -90,6 +93,14 @@ fun MainScaffold(repo: AppRepository, onOpenSettings: () -> Unit) {
     val isMouseMode by screenVm.isMouseMode.collectAsStateWithLifecycle()
 
     var tab by remember { mutableStateOf(Tab.Chat) }
+    // Restore the last-opened tab once on launch (waits for the first real
+    // DataStore emission, not the Compose-seeded default), then persist changes.
+    var tabRestored by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        val saved = repo.lastTab.first()
+        runCatching { saved?.let { Tab.valueOf(it) } }.getOrNull()?.let { tab = it }
+        tabRestored = true
+    }
     var showModelSheet by remember { mutableStateOf(false) }
     var showRepoSheet by remember { mutableStateOf(false) }
     var showBranchSheet by remember { mutableStateOf(false) }
@@ -99,9 +110,16 @@ fun MainScaffold(repo: AppRepository, onOpenSettings: () -> Unit) {
     LaunchedEffect(tab) {
         screenVm.setActive(tab == Tab.Screen)
         sessionVm.setScreenActive(tab == Tab.Screen)
+        if (tabRestored) repo.saveLastTab(tab.name)
+    }
+
+    val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(Unit) {
+        screenVm.errors.collect { snackbarHostState.showSnackbar(it) }
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = {

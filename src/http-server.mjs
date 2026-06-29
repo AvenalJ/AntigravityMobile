@@ -1961,7 +1961,8 @@ app.post('/api/screen/click', Pairing.requirePaired, async (req, res) => {
 
 app.post('/api/screen/type', Pairing.requirePaired, async (req, res) => {
     try {
-        HelperBridge.sendInput({ type: 'text', text: String(req.body?.text ?? '') });
+        const ok = HelperBridge.sendInput({ type: 'text', text: String(req.body?.text ?? '') });
+        if (!ok) return res.status(503).json({ success: false, error: 'helper not connected' });
         res.json({ success: true });
     } catch (e) { res.status(500).json({ success: false, error: e.message }); }
 });
@@ -1969,7 +1970,8 @@ app.post('/api/screen/type', Pairing.requirePaired, async (req, res) => {
 app.post('/api/screen/key', Pairing.requirePaired, async (req, res) => {
     try {
         const { key, ctrl, alt, shift, meta } = req.body || {};
-        HelperBridge.sendKeyPress(String(key ?? ''), { ctrl, alt, shift, meta });
+        const ok = HelperBridge.sendKeyPress(String(key ?? ''), { ctrl, alt, shift, meta });
+        if (!ok) return res.status(503).json({ success: false, error: 'helper not connected' });
         res.json({ success: true });
     } catch (e) { res.status(500).json({ success: false, error: e.message }); }
 });

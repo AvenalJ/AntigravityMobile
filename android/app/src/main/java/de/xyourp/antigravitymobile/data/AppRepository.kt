@@ -32,6 +32,7 @@ class AppRepository(private val settingsStore: SettingsStore) {
     val cursorTilt: Flow<Float> = settingsStore.cursorTilt
     val cursorOffsetY: Flow<Float> = settingsStore.cursorOffsetY
     val isMouseMode: Flow<Boolean> = settingsStore.isMouseMode
+    val lastTab: Flow<String?> = settingsStore.lastTab
 
     init {
         settingsStore.settings
@@ -70,6 +71,10 @@ class AppRepository(private val settingsStore: SettingsStore) {
 
     suspend fun saveIsMouseMode(isMouseMode: Boolean) {
         settingsStore.saveIsMouseMode(isMouseMode)
+    }
+
+    suspend fun saveLastTab(tab: String) {
+        settingsStore.saveLastTab(tab)
     }
 
     /**

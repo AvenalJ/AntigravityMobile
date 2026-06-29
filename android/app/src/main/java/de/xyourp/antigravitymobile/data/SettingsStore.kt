@@ -27,6 +27,7 @@ class SettingsStore(private val context: Context) {
         val CURSOR_TILT = floatPreferencesKey("cursor_tilt")
         val CURSOR_OFFSET_Y = floatPreferencesKey("cursor_offset_y")
         val IS_MOUSE_MODE = androidx.datastore.preferences.core.booleanPreferencesKey("is_mouse_mode")
+        val LAST_TAB = stringPreferencesKey("last_tab")
     }
 
     val settings: Flow<ConnectionSettings> = context.dataStore.data.map { p ->
@@ -45,6 +46,8 @@ class SettingsStore(private val context: Context) {
     val cursorTilt: Flow<Float> = context.dataStore.data.map { it[Keys.CURSOR_TILT] ?: 0f }
     val cursorOffsetY: Flow<Float> = context.dataStore.data.map { it[Keys.CURSOR_OFFSET_Y] ?: 0f }
     val isMouseMode: Flow<Boolean> = context.dataStore.data.map { it[Keys.IS_MOUSE_MODE] ?: false }
+    /** The last tab the user was on, restored on next launch. Null until set. */
+    val lastTab: Flow<String?> = context.dataStore.data.map { it[Keys.LAST_TAB] }
 
     suspend fun saveConnection(settings: ConnectionSettings) {
         context.dataStore.edit { p ->
@@ -80,5 +83,9 @@ class SettingsStore(private val context: Context) {
 
     suspend fun saveIsMouseMode(isMouseMode: Boolean) {
         context.dataStore.edit { it[Keys.IS_MOUSE_MODE] = isMouseMode }
+    }
+
+    suspend fun saveLastTab(tab: String) {
+        context.dataStore.edit { it[Keys.LAST_TAB] = tab }
     }
 }

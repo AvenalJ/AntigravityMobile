@@ -29,3 +29,4 @@ npm-debug.log*
 # Build output (if any)
 dist/
 build/
+.claude/launch.json
