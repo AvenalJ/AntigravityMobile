@@ -3,7 +3,7 @@ package de.xyourp.antigravitymobile.ui.screen
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -51,6 +51,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.isSpecified
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.AwaitPointerEventScope
+import androidx.compose.ui.input.pointer.PointerId
+import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
@@ -62,6 +65,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.res.painterResource
+import kotlinx.coroutines.withTimeoutOrNull
 import de.xyourp.antigravitymobile.R
 
 enum class InputMode { Touch, Mouse }
@@ -198,66 +202,132 @@ fun ScreenScreen(
                     }
                     .pointerInput(containerSize, imgAspect, inputMode) {
                         if (inputMode != InputMode.Touch) return@pointerInput
-                        // Touch-mode taps & long-press, ported from RustDesk's gesture model
-                        // (RawTouchGestureDetectorRegion in remote_input.dart). Instead of a
-                        // hand-rolled 500 ms hold timer — whose race could leave the remote
-                        // stuck in mousePressed on a plain tap — we lean on the framework's own
-                        // recognizers, which carry the same tap-slop/timeout guarantees RustDesk
-                        // relies on. A tap is ALWAYS a clean click; the remote button is only
-                        // ever held during an explicit drag (handled below).
+                        // Single-finger touch, faithful to RustDesk's Android gesture model.
+                        // The key point the previous version got wrong: a plain one-finger move
+                        // must NOT hold the left button. The button is held ONLY by a
+                        // double-tap-then-drag. So a single tap (or a stray finger slide) can
+                        // never leave the remote stuck in mousePressed.
                         //
-                        //   • One-finger tap        → left click   (RustDesk: One-Finger Tap)
-                        //   • One-finger double-tap → double click
-                        //   • One-finger long-press → right click  (RustDesk: One-Long Tap)
-                        detectTapGestures(
-                            onTap = { pos ->
-                                normalize(pos, containerSize, imgAspect, scale, offset)
-                                    ?.let { onTap(it.x, it.y) }
-                            },
-                            onDoubleTap = { pos ->
-                                normalize(pos, containerSize, imgAspect, scale, offset)?.let {
-                                    onTap(it.x, it.y)
-                                    onTap(it.x, it.y)
+                        //   • Tap                    → left click
+                        //   • Double-tap             → double click
+                        //   • Double-tap, then drag  → HOLD left button + drag (RustDesk "hold")
+                        //   • Drag (one tap + move)  → move the remote cursor only, no button
+                        //   • Long-press             → right click
+                        val slop = viewConfiguration.touchSlop
+                        val longPressMs = viewConfiguration.longPressTimeoutMillis
+                        val doubleTapMs = viewConfiguration.doubleTapTimeoutMillis
+
+                        fun send(action: String, p: Offset, button: String) {
+                            normalize(p, containerSize, imgAspect, scale, offset)?.let {
+                                onMouse(action, it.x, it.y, button, null, null)
+                            }
+                        }
+                        fun click(p: Offset) {
+                            normalize(p, containerSize, imgAspect, scale, offset)?.let { onTap(it.x, it.y) }
+                        }
+                        // Drag the given pointer, sending mouseMoved with [button] until lift.
+                        // Returns the last position seen.
+                        suspend fun AwaitPointerEventScope.dragUntilUp(id: PointerId, from: Offset, button: String): Offset {
+                            var pos = from
+                            send("mouseMoved", pos, button)
+                            while (true) {
+                                val e = awaitPointerEvent()
+                                val c = e.changes.firstOrNull { it.id == id } ?: break
+                                pos = c.position
+                                if (!c.pressed) break
+                                send("mouseMoved", pos, button)
+                                c.consume()
+                            }
+                            return pos
+                        }
+
+                        awaitPointerEventScope {
+                            while (true) {
+                                val down = awaitFirstDown(requireUnconsumed = false)
+                                val id = down.id
+                                val startPos = down.position
+                                var pos = startPos
+                                var moved = false
+                                var multi = false
+                                var rightClicked = false
+                                var startTime = down.uptimeMillis
+                                var curTime = startTime
+
+                                // ── Phase 1: classify the first press ──────────────
+                                while (true) {
+                                    val remaining = longPressMs - (curTime - startTime)
+                                    val e = if (!moved && !rightClicked && remaining > 0)
+                                        withTimeoutOrNull(remaining) { awaitPointerEvent() }
+                                    else awaitPointerEvent()
+
+                                    if (e == null) {
+                                        // Long-press timeout, still down & still → right click.
+                                        send("mousePressed", startPos, "right")
+                                        send("mouseReleased", startPos, "right")
+                                        rightClicked = true
+                                        continue
+                                    }
+                                    if (e.changes.count { it.pressed } > 1) { multi = true; break }
+                                    val c = e.changes.firstOrNull { it.id == id } ?: break
+                                    curTime = c.uptimeMillis
+                                    pos = c.position
+                                    if (!c.pressed) break
+                                    if (!moved && (c.position - startPos).getDistance() > slop) moved = true
+                                    if (moved) break
                                 }
-                            },
-                            onLongPress = { pos ->
-                                normalize(pos, containerSize, imgAspect, scale, offset)?.let {
-                                    onMouse("mousePressed",  it.x, it.y, "right", null, null)
-                                    onMouse("mouseReleased", it.x, it.y, "right", null, null)
+
+                                // Multi-finger → let the pan/scroll handlers take over.
+                                if (multi) continue
+                                if (rightClicked) continue
+
+                                if (moved) {
+                                    // PLAIN DRAG → move the cursor only, no button held.
+                                    dragUntilUp(id, pos, "none")
+                                    continue
                                 }
-                            },
-                        )
-                    }
-                    .pointerInput(containerSize, imgAspect, inputMode) {
-                        if (inputMode != InputMode.Touch) return@pointerInput
-                        // Touch-mode drag = left-button drag (RustDesk: One-Finger Move).
-                        // detectDragGestures only fires after touch-slop is crossed, so a plain
-                        // tap can never start it. The button is pressed on drag start and is
-                        // ALWAYS released on end OR cancel — there is no code path that holds it.
-                        var lastNorm: Offset? = null
-                        detectDragGestures(
-                            onDragStart = { pos ->
-                                normalize(pos, containerSize, imgAspect, scale, offset)?.also {
-                                    lastNorm = it
-                                    onMouse("mousePressed", it.x, it.y, "left", null, null)
+
+                                // Lifted before slop & before long-press → a TAP. Wait briefly
+                                // for a second press (double-tap or double-tap-drag).
+                                val second = withTimeoutOrNull(doubleTapMs) {
+                                    var d: PointerInputChange? = null
+                                    while (d == null) {
+                                        val e = awaitPointerEvent()
+                                        d = e.changes.firstOrNull { it.pressed && !it.previousPressed }
+                                    }
+                                    d
                                 }
-                            },
-                            onDrag = { change, _ ->
-                                normalize(change.position, containerSize, imgAspect, scale, offset)?.also {
-                                    lastNorm = it
-                                    onMouse("mouseMoved", it.x, it.y, "left", null, null)
+
+                                if (second == null) {
+                                    // SINGLE TAP → left click.
+                                    click(startPos)
+                                    continue
                                 }
-                                change.consume()
-                            },
-                            onDragEnd = {
-                                lastNorm?.let { onMouse("mouseReleased", it.x, it.y, "left", null, null) }
-                                lastNorm = null
-                            },
-                            onDragCancel = {
-                                lastNorm?.let { onMouse("mouseReleased", it.x, it.y, "left", null, null) }
-                                lastNorm = null
-                            },
-                        )
+
+                                // Second press began: quick lift → double click; move → hold-drag.
+                                val id2 = second.id
+                                val start2 = second.position
+                                var pos2 = start2
+                                var moved2 = false
+                                while (true) {
+                                    val e = awaitPointerEvent()
+                                    val c = e.changes.firstOrNull { it.id == id2 } ?: break
+                                    pos2 = c.position
+                                    if (!c.pressed) break
+                                    if ((c.position - start2).getDistance() > slop) { moved2 = true; break }
+                                }
+
+                                if (moved2) {
+                                    // DOUBLE-TAP-DRAG → hold left button while dragging.
+                                    send("mousePressed", start2, "left")
+                                    val end = dragUntilUp(id2, pos2, "left")
+                                    send("mouseReleased", end, "left")
+                                } else {
+                                    // DOUBLE TAP → double click.
+                                    click(startPos)
+                                    click(startPos)
+                                }
+                            }
+                        }
                     }
                     .pointerInput(containerSize, imgAspect, inputMode) {
                         detectTransformGestures { _, pan, zoom, _ ->
