@@ -1623,6 +1623,17 @@ app.get('/api/quota/status', async (req, res) => {
     }
 });
 
+// Raw GetUserStatus payload (localhost only) — for discovering richer
+// weekly-usage fields beyond the per-model quotaInfo we currently parse.
+app.get('/api/quota/raw', localhostOnly, async (req, res) => {
+    try {
+        await QuotaService.getQuota(); // ensure a fresh fetch populated the cache
+        res.json(QuotaService.getRawUserStatus() || { error: 'No data yet' });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // ============================================================================
 // Model & Mode Control Endpoints
 // ============================================================================

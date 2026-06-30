@@ -227,6 +227,48 @@
             margin-top: 10px;
         }
 
+        /* Weekly usage summary bar */
+        .quota-week {
+            margin-top: 6px;
+        }
+
+        .quota-week-row {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            margin-bottom: 6px;
+        }
+
+        .quota-week-label {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
+        .quota-week-value {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .quota-week-bar {
+            height: 8px;
+            border-radius: 999px;
+            background: var(--bg-glass);
+            border: 1px solid var(--border);
+            overflow: hidden;
+        }
+
+        .quota-week-bar > span {
+            display: block;
+            height: 100%;
+            border-radius: 999px;
+            background: var(--accent-primary);
+            transition: width 0.4s ease;
+        }
+
         .quota-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
