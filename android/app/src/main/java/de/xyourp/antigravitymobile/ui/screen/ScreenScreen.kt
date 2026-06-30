@@ -103,6 +103,9 @@ fun ScreenScreen(
             var imgAspect by remember { mutableStateOf(1.6f) }
             var scale by remember { mutableStateOf(1f) }
             var offset by remember { mutableStateOf(Offset.Zero) }
+            // Number of fingers currently down — used to stop the canvas from
+            // panning during a 3-finger scroll.
+            var activePointers by remember { mutableStateOf(0) }
 
             // Continuous, frame-driven edge-pan (RustDesk-style): while the virtual
             // cursor sits inside an edge margin and we're zoomed in, glide the
@@ -185,6 +188,9 @@ fun ScreenScreen(
                         awaitPointerEventScope {
                             while (true) {
                                 val event = awaitPointerEvent()
+                                // Track finger count first so the canvas-transform handler
+                                // (declared after this one) can ignore 3-finger gestures.
+                                activePointers = event.changes.count { it.pressed }
                                 if (event.changes.size >= 3) {
                                     val dy = event.changes.map { (it.position.y - it.previousPosition.y).toDouble() }.average().toFloat()
                                     scrollAccum += dy
@@ -331,6 +337,8 @@ fun ScreenScreen(
                     }
                     .pointerInput(containerSize, imgAspect, inputMode) {
                         detectTransformGestures { _, pan, zoom, _ ->
+                            // 3+ fingers = scroll gesture; never pan/zoom the canvas then.
+                            if (activePointers >= 3) return@detectTransformGestures
                             if (inputMode == InputMode.Mouse && zoom == 1f) {
                                 val cw = containerSize.width.toFloat()
                                 val ch = containerSize.height.toFloat()

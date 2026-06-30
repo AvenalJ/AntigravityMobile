@@ -38,7 +38,10 @@ pub struct CaptureOpts {
 
 impl Default for CaptureOpts {
     fn default() -> Self {
-        Self { max_w: 1600, max_h: 1000, quality: 55, fps: 20 }
+        // Capture closer to native so zooming in on the phone reveals real detail
+        // instead of upscaled blur. Higher res + quality costs more bandwidth, but
+        // it's fine over a direct Tailscale link.
+        Self { max_w: 2560, max_h: 1600, quality: 62, fps: 20 }
     }
 }
 
