@@ -14,6 +14,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.CallSplit
 import androidx.compose.material.icons.filled.Cast
 import androidx.compose.material.icons.filled.Folder
@@ -67,6 +68,7 @@ import de.xyourp.antigravitymobile.ui.screen.ScreenScreen
 import de.xyourp.antigravitymobile.ui.screen.ScreenViewModel
 import de.xyourp.antigravitymobile.ui.session.AgentStatus
 import de.xyourp.antigravitymobile.ui.session.SessionViewModel
+import de.xyourp.antigravitymobile.ui.usage.UsageSheet
 import de.xyourp.antigravitymobile.ui.theme.AcceptGreen
 import de.xyourp.antigravitymobile.ui.theme.RejectRed
 
@@ -106,6 +108,7 @@ fun MainScaffold(repo: AppRepository, onOpenSettings: () -> Unit) {
     var showBranchSheet by remember { mutableStateOf(false) }
     var showIdePicker by remember { mutableStateOf(false) }
     var showConvPicker by remember { mutableStateOf(false) }
+    var showUsageSheet by remember { mutableStateOf(false) }
 
     LaunchedEffect(tab) {
         screenVm.setActive(tab == Tab.Screen)
@@ -148,6 +151,9 @@ fun MainScaffold(repo: AppRepository, onOpenSettings: () -> Unit) {
                     )
                     IconButton(onClick = { showConvPicker = true }) {
                         Icon(Icons.Filled.Add, "New 2.0 conversation in a project")
+                    }
+                    IconButton(onClick = { sessionVm.loadQuota(); showUsageSheet = true }) {
+                        Icon(Icons.Filled.BarChart, "Usage")
                     }
                     AgentControlsMenu(
                         hasPending = session.pendingApproval != null,
@@ -273,6 +279,14 @@ fun MainScaffold(repo: AppRepository, onOpenSettings: () -> Unit) {
             load = { repo.api.dirs(it) },
             onPick = { sessionVm.newConversation(it); showConvPicker = false },
             onDismiss = { showConvPicker = false },
+        )
+    }
+
+    if (showUsageSheet) {
+        UsageSheet(
+            quota = session.quota,
+            loading = session.quotaLoading,
+            onDismiss = { showUsageSheet = false },
         )
     }
 }

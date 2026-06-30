@@ -277,3 +277,22 @@ data class ConversationsResponse(
 
 @Serializable
 data class ActionResult(val success: Boolean = false, val error: String? = null)
+
+// ---- Model usage / quota (GET /api/quota) ----
+
+@Serializable
+data class QuotaModelInfo(
+    val id: String = "",
+    val name: String = "",
+    val remainingPercent: Int = 100,
+    val usedPercent: Int? = null,   // server may send it; otherwise derived as 100 - remaining
+    val resetIn: String? = null,
+    val status: String = "healthy",
+)
+
+@Serializable
+data class QuotaResponse(
+    val available: Boolean = false,
+    val error: String? = null,
+    val models: List<QuotaModelInfo> = emptyList(),
+)

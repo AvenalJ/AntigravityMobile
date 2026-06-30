@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import de.xyourp.antigravitymobile.data.AppRepository
 import de.xyourp.antigravitymobile.net.ApprovalsResponse
 import de.xyourp.antigravitymobile.net.CdpSource
+import de.xyourp.antigravitymobile.net.QuotaResponse
 import de.xyourp.antigravitymobile.net.Repo
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -34,6 +35,8 @@ data class SessionState(
     val currentRepoPath: String? = null,
     val sources: List<CdpSource> = emptyList(),
     val sourcePreference: String = "auto",
+    val quota: QuotaResponse? = null,
+    val quotaLoading: Boolean = false,
 )
 
 /**
@@ -91,6 +94,21 @@ class SessionViewModel(private val repo: AppRepository) : ViewModel() {
                 "source_changed" -> { loadSources(); loadModels(); loadWorkspace() }
             }
         }.launchIn(viewModelScope)
+    }
+
+    /** Fetch model usage/quota (for the Usage sheet). */
+    fun loadQuota() {
+        _state.value = _state.value.copy(quotaLoading = true)
+        viewModelScope.launch {
+            runCatching { repo.api.quota() }
+                .onSuccess { _state.value = _state.value.copy(quota = it, quotaLoading = false) }
+                .onFailure {
+                    _state.value = _state.value.copy(
+                        quota = QuotaResponse(available = false, error = it.message ?: "Failed to load usage"),
+                        quotaLoading = false,
+                    )
+                }
+        }
     }
 
     fun loadSources() {

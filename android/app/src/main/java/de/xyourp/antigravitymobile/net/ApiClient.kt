@@ -152,6 +152,9 @@ class ApiClient(private val settingsProvider: () -> ConnectionSettings) {
     suspend fun setModel(model: String): SetModelResponse =
         json.decodeFromString(postRaw("/api/models/set", bodyOf("model", model)))
 
+    suspend fun quota(): QuotaResponse =
+        json.decodeFromString(getRaw("/api/quota"))
+
     suspend fun approvals(): ApprovalsResponse =
         json.decodeFromString(getRaw("/api/approvals"))
 
