@@ -22,6 +22,8 @@ scrap = "0.5"
 image = { version = "0.25", default-features = false, features = ["jpeg"] }
 # Phase 4: native input injection (mouse + keyboard with modifiers)
 enigo = "0.2"
+# H.264 screen streaming: software encoder (vendored OpenH264 build).
+openh264 = "0.6"
 
 [profile.release]
 opt-level = 3

@@ -9,6 +9,7 @@
 
 mod antigravity;
 mod capture;
+mod h264;
 mod input;
 mod protocol;
 mod server;
@@ -43,7 +44,7 @@ async fn main() {
             hub.width = geo.width;
             hub.height = geo.height;
             hub.monitor = geo.monitor;
-            capture::spawn(hub.frames_tx.clone(), capture::CaptureOpts::default());
+            capture::spawn(hub.frames_tx.clone(), capture::CaptureOpts::default(), hub.h264.clone());
         }
         Err(e) => log::error!("no display to capture: {e} (frames disabled)"),
     }

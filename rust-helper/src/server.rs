@@ -14,6 +14,9 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::broadcast;
 use tokio_tungstenite::tungstenite::Message;
 
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+
 use crate::protocol::{HelperEvent, InputCommand};
 
 /// Shared handle wiring the capture task (frame producer) to connected clients,
@@ -24,6 +27,8 @@ pub struct Hub {
     pub frames_tx: broadcast::Sender<Vec<u8>>,
     /// Input commands received from Node, fan out to the input executor.
     pub input_tx: broadcast::Sender<InputCommand>,
+    /// When true the capture loop emits H.264 instead of JPEG (phone opt-in).
+    pub h264: Arc<AtomicBool>,
     /// Capture geometry, reported in the Hello event.
     pub width: u32,
     pub height: u32,
@@ -39,6 +44,7 @@ impl Hub {
         Self {
             frames_tx,
             input_tx,
+            h264: Arc::new(AtomicBool::new(false)),
             width: 0,
             height: 0,
             monitor: 0,
@@ -99,6 +105,12 @@ async fn serve_client(stream: TcpStream, hub: Hub) -> anyhow_lite::Result {
             msg = source.next() => match msg {
                 Some(Ok(Message::Text(txt))) => {
                     match serde_json::from_str::<InputCommand>(&txt) {
+                        // Video is a stream-control command — toggle the encoder
+                        // flag here instead of routing it to the input executor.
+                        Ok(InputCommand::Video { codec }) => {
+                            hub.h264.store(codec == "h264", Ordering::Relaxed);
+                            log::info!("video codec set to {codec}");
+                        }
                         Ok(cmd) => { let _ = hub.input_tx.send(cmd); }
                         Err(e) => log::warn!("bad input command: {e}: {txt}"),
                     }

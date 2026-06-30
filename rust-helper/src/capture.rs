@@ -7,12 +7,16 @@
 //! attached the send is a cheap no-op, so capture self-throttles to the cadence.
 
 use std::io::ErrorKind::WouldBlock;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use image::codecs::jpeg::JpegEncoder;
 use image::{ExtendedColorType, ImageEncoder};
 use scrap::{Capturer, Display};
 use tokio::sync::broadcast;
+
+use crate::h264::H264;
 
 /// Capture geometry, reported to Node in the Hello event.
 #[derive(Clone, Copy)]
@@ -47,11 +51,11 @@ pub fn primary_geometry() -> Result<Geometry, String> {
 
 /// Spawn the capture thread. It owns its Display/Capturer and re-creates them on
 /// error (resolution change, secure desktop, GPU mode switch).
-pub fn spawn(frames_tx: broadcast::Sender<Vec<u8>>, opts: CaptureOpts) {
+pub fn spawn(frames_tx: broadcast::Sender<Vec<u8>>, opts: CaptureOpts, h264: Arc<AtomicBool>) {
     std::thread::Builder::new()
         .name("capture".into())
         .spawn(move || loop {
-            if let Err(e) = run_once(&frames_tx, opts) {
+            if let Err(e) = run_once(&frames_tx, opts, &h264) {
                 log::warn!("capture restarting after error: {e}");
             }
             std::thread::sleep(Duration::from_millis(300));
@@ -60,7 +64,7 @@ pub fn spawn(frames_tx: broadcast::Sender<Vec<u8>>, opts: CaptureOpts) {
 }
 
 /// One capturer lifetime: grab frames until a fatal error bubbles up.
-fn run_once(frames_tx: &broadcast::Sender<Vec<u8>>, opts: CaptureOpts) -> Result<(), String> {
+fn run_once(frames_tx: &broadcast::Sender<Vec<u8>>, opts: CaptureOpts, h264: &AtomicBool) -> Result<(), String> {
     let display = Display::primary().map_err(|e| e.to_string())?;
     let w = display.width();
     let h = display.height();
@@ -70,6 +74,8 @@ fn run_once(frames_tx: &broadcast::Sender<Vec<u8>>, opts: CaptureOpts) -> Result
     // Integer downsample factor so the long side fits the cap (cheap, no resample).
     let factor = downsample_factor(w as u32, h as u32, opts.max_w, opts.max_h);
     let frame_interval = Duration::from_millis((1000 / opts.fps.max(1)) as u64);
+    // H.264 encoder is created lazily on first use (when the phone enables HD).
+    let mut enc: Option<H264> = None;
 
     loop {
         let t0 = Instant::now();
@@ -77,12 +83,32 @@ fn run_once(frames_tx: &broadcast::Sender<Vec<u8>>, opts: CaptureOpts) -> Result
             Ok(frame) => {
                 // scrap gives BGRA with a row stride that may exceed width*4.
                 let stride = frame.len() / h;
-                match encode_jpeg(&frame, w, h, stride, factor, opts.quality) {
-                    Ok(jpeg) => {
-                        // Err only means "no subscribers" — fine, keep capturing.
-                        let _ = frames_tx.send(jpeg);
+                if h264.load(Ordering::Relaxed) {
+                    // HD path: downsample to RGB (even dims) and H.264-encode.
+                    let (rgb, ow, oh) = downsample_rgb(&frame, w, h, stride, factor, true);
+                    if enc.is_none() {
+                        match H264::new(opts.fps, 2_500_000) {
+                            Ok(e) => enc = Some(e),
+                            Err(e) => log::warn!("h264 init failed, staying on JPEG: {e}"),
+                        }
                     }
-                    Err(e) => log::debug!("encode failed: {e}"),
+                    if let Some(e) = enc.as_mut() {
+                        match e.encode(&rgb, ow, oh) {
+                            Ok(pkt) => { let _ = frames_tx.send(pkt); }
+                            Err(err) => log::debug!("h264 encode failed: {err}"),
+                        }
+                    }
+                } else {
+                    enc = None; // drop the encoder when HD is off
+                    match encode_jpeg(&frame, w, h, stride, factor, opts.quality) {
+                        Ok(mut jpeg) => {
+                            // Tag JPEG frames ('J') so the phone can demux the stream.
+                            jpeg.insert(0, 0x4A);
+                            // Err only means "no subscribers" — fine, keep capturing.
+                            let _ = frames_tx.send(jpeg);
+                        }
+                        Err(e) => log::debug!("encode failed: {e}"),
+                    }
                 }
             }
             Err(ref e) if e.kind() == WouldBlock => {
@@ -106,6 +132,38 @@ fn downsample_factor(w: u32, h: u32, max_w: u32, max_h: u32) -> u32 {
     fw.max(fh).max(1)
 }
 
+/// BGRA(+stride) -> tightly-packed RGB, integer-downsampled by `factor`.
+/// When `even` is set the output dimensions are rounded down to even numbers
+/// (H.264 / YUV420 requires even width and height).
+fn downsample_rgb(
+    src: &[u8],
+    w: usize,
+    h: usize,
+    stride: usize,
+    factor: u32,
+    even: bool,
+) -> (Vec<u8>, usize, usize) {
+    let f = factor as usize;
+    let mut out_w = (w + f - 1) / f;
+    let mut out_h = (h + f - 1) / f;
+    if even {
+        out_w &= !1;
+        out_h &= !1;
+    }
+    let mut rgb = Vec::with_capacity(out_w * out_h * 3);
+    for oy in 0..out_h {
+        let row = (oy * f) * stride;
+        for ox in 0..out_w {
+            let p = row + (ox * f) * 4;
+            // scrap is BGRA on Windows.
+            rgb.push(src[p + 2]); // R
+            rgb.push(src[p + 1]); // G
+            rgb.push(src[p]); // B
+        }
+    }
+    (rgb, out_w, out_h)
+}
+
 /// BGRA(+stride) -> RGB (downsampled by `factor`) -> baseline JPEG bytes.
 fn encode_jpeg(
     src: &[u8],
@@ -115,26 +173,7 @@ fn encode_jpeg(
     factor: u32,
     quality: u8,
 ) -> Result<Vec<u8>, String> {
-    let f = factor as usize;
-    let out_w = (w + f - 1) / f;
-    let out_h = (h + f - 1) / f;
-    let mut rgb = Vec::with_capacity(out_w * out_h * 3);
-
-    let mut sy = 0usize;
-    while sy < h {
-        let row = sy * stride;
-        let mut sx = 0usize;
-        while sx < w {
-            let p = row + sx * 4;
-            // scrap is BGRA on Windows.
-            rgb.push(src[p + 2]); // R
-            rgb.push(src[p + 1]); // G
-            rgb.push(src[p]); // B
-            sx += f;
-        }
-        sy += f;
-    }
-
+    let (rgb, out_w, out_h) = downsample_rgb(src, w, h, stride, factor, false);
     let mut out = Vec::new();
     JpegEncoder::new_with_quality(&mut out, quality)
         .write_image(&rgb, out_w as u32, out_h as u32, ExtendedColorType::Rgb8)

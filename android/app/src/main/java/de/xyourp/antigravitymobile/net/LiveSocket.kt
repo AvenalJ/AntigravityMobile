@@ -27,6 +27,9 @@ import java.util.concurrent.TimeUnit
 /** One decoded `{event,data,ts}` frame from the bridge WebSocket. */
 data class SocketMessage(val event: String, val data: JsonElement?)
 
+/** One H.264 access unit demuxed from the binary stream. */
+data class VideoPacket(val keyframe: Boolean, val data: ByteArray)
+
 /**
  * WebSocket client for the bridge. Single connection, shared on the same port as
  * REST. Auto-reconnects with exponential backoff capped at 30s (per constraints).
@@ -47,6 +50,12 @@ class LiveSocket(private val scope: CoroutineScope) {
         onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST
     )
     val frames: SharedFlow<Bitmap> = _frames.asSharedFlow()
+
+    private val _video = MutableSharedFlow<VideoPacket>(
+        extraBufferCapacity = 8,
+        onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST
+    )
+    val video: SharedFlow<VideoPacket> = _video.asSharedFlow()
 
     private val _connected = MutableStateFlow(false)
     val connected: StateFlow<Boolean> = _connected.asStateFlow()
@@ -104,10 +113,20 @@ class LiveSocket(private val scope: CoroutineScope) {
             }
 
             override fun onMessage(ws: WebSocket, bytes: ByteString) {
-                val byteArray = bytes.toByteArray()
-                val bitmap = BitmapFactory.decodeByteArray(byteArray, 0, byteArray.size)
-                if (bitmap != null) {
-                    _frames.tryEmit(bitmap)
+                val b = bytes.toByteArray()
+                if (b.isEmpty()) return
+                when (b[0].toInt() and 0xFF) {
+                    0x4A -> { // 'J' tagged JPEG
+                        BitmapFactory.decodeByteArray(b, 1, b.size - 1)?.let { _frames.tryEmit(it) }
+                    }
+                    0x48 -> { // 'H' H.264: [0x48, keyflag, ...annexb]
+                        if (b.size > 2) {
+                            _video.tryEmit(VideoPacket(b[1].toInt() == 1, b.copyOfRange(2, b.size)))
+                        }
+                    }
+                    else -> { // legacy untagged JPEG
+                        BitmapFactory.decodeByteArray(b, 0, b.size)?.let { _frames.tryEmit(it) }
+                    }
                 }
             }
 

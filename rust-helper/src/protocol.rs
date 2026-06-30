@@ -41,6 +41,9 @@ pub enum InputCommand {
     },
     /// Type a literal string into the focused OS window (the input field, F1).
     Text { text: String },
+    /// Switch the outbound video codec for the screen stream: "h264" | "jpeg".
+    /// Handled in the WS server (toggles the capture encoder), not the input task.
+    Video { codec: String },
 }
 
 /// Control/status messages the helper may send to Node as TEXT alongside the

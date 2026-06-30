@@ -118,6 +118,8 @@ fn dispatch(enigo: &mut Enigo, cmd: &InputCommand, w: i32, h: i32) -> Result<(),
         InputCommand::Text { text } => {
             enigo.text(text).map_err(|e| e.to_string())?;
         }
+        // Stream-control command, handled in the WS server — never reaches here.
+        InputCommand::Video { .. } => {}
     }
     Ok(())
 }

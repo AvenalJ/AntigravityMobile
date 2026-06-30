@@ -1981,6 +1981,17 @@ app.post('/api/screen/click', Pairing.requirePaired, async (req, res) => {
     } catch (e) { res.status(500).json({ success: false, error: e.message }); }
 });
 
+// Switch the screen video codec: { codec: "h264" | "jpeg" }. The helper toggles
+// its capture encoder; the phone demuxes tagged frames either way.
+app.post('/api/screen/codec', Pairing.requirePaired, (req, res) => {
+    try {
+        const codec = req.body?.codec === 'h264' ? 'h264' : 'jpeg';
+        const ok = HelperBridge.sendInput({ type: 'video', codec });
+        if (!ok) return res.status(503).json({ success: false, error: 'helper not connected' });
+        res.json({ success: true, codec });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+});
+
 app.post('/api/screen/type', Pairing.requirePaired, async (req, res) => {
     try {
         const ok = HelperBridge.sendInput({ type: 'text', text: String(req.body?.text ?? '') });

@@ -65,7 +65,13 @@ function connect() {
 
     ws.on('message', (data, isBinary) => {
         if (isBinary) {
-            latestFrame = data;
+            // Frames are tagged: 0x4A 'J' = JPEG, 0x48 'H' = H.264 access unit.
+            // Keep latestFrame as the most recent JPEG so /api/screen/live.jpg (web
+            // thumbnail) stays valid even while the phone is on the H.264 stream.
+            if (data.length > 0 && data[0] === 0x4A) {
+                latestFrame = data.subarray(1);
+            }
+            // Forward the full tagged buffer to phone clients (they demux it).
             helperEvents.emit('frame', data);
         } else {
             try {
