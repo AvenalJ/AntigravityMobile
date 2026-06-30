@@ -1,5 +1,8 @@
 package de.xyourp.antigravitymobile.ui.settings
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import de.xyourp.antigravitymobile.data.AppRepository
@@ -32,6 +35,7 @@ data class SettingsUiState(
     val pairCode: String = "",
     val pairing: Boolean = false,
     val pairError: String? = null,
+    val clipboardMessage: String? = null,
 )
 
 class SettingsViewModel(private val repo: AppRepository) : ViewModel() {
@@ -89,6 +93,26 @@ class SettingsViewModel(private val repo: AppRepository) : ViewModel() {
     fun onCursorAlpha(v: Float) { _state.value = _state.value.copy(cursorAlpha = v, saved = false) }
     fun onCursorTilt(v: Float) { _state.value = _state.value.copy(cursorTilt = v, saved = false) }
     fun onCursorOffsetY(v: Float) { _state.value = _state.value.copy(cursorOffsetY = v, saved = false) }
+
+    fun pushClipboard(context: Context) {
+        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+        val text = cm?.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString()
+        if (text.isNullOrEmpty()) { _state.value = _state.value.copy(clipboardMessage = "Phone clipboard is empty"); return }
+        viewModelScope.launch {
+            val ok = runCatching { repo.api.setClipboard(text) }.getOrNull()?.success == true
+            _state.value = _state.value.copy(clipboardMessage = if (ok) "Sent to PC clipboard" else "Couldn't reach the PC")
+        }
+    }
+
+    fun pullClipboard(context: Context) {
+        viewModelScope.launch {
+            val text = runCatching { repo.api.getClipboard() }.getOrNull()?.text
+            if (text.isNullOrEmpty()) { _state.value = _state.value.copy(clipboardMessage = "PC clipboard is empty"); return@launch }
+            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+            cm?.setPrimaryClip(ClipData.newPlainText("Antigravity", text))
+            _state.value = _state.value.copy(clipboardMessage = "Copied PC clipboard to phone")
+        }
+    }
 
     private fun build(): ConnectionSettings = ConnectionSettings(
         host = _state.value.host.trim(),

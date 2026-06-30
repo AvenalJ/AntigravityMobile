@@ -170,13 +170,6 @@ fun MainScaffold(repo: AppRepository, onOpenSettings: () -> Unit) {
                     IconButton(onClick = { sessionVm.loadQuota(); showUsageSheet = true }) {
                         Icon(Icons.Filled.BarChart, "Usage")
                     }
-                    AgentControlsMenu(
-                        hasPending = session.pendingApproval != null,
-                        onRefreshChat = { chatVm.load(initial = false) },
-                        onStop = { sessionVm.respondApproval("reject") },
-                        onPushClipboard = { sessionVm.pushClipboard(filesContext) },
-                        onPullClipboard = { sessionVm.pullClipboard(filesContext) },
-                    )
                     IconButton(onClick = onOpenSettings) { Icon(Icons.Filled.Settings, "Settings") }
                 },
             )
@@ -400,37 +393,3 @@ private fun AgentStatusLabel(status: AgentStatus) {
     Text(status.label, style = MaterialTheme.typography.labelSmall, color = color, maxLines = 1)
 }
 
-@Composable
-private fun AgentControlsMenu(
-    hasPending: Boolean,
-    onRefreshChat: () -> Unit,
-    onStop: () -> Unit,
-    onPushClipboard: () -> Unit,
-    onPullClipboard: () -> Unit,
-) {
-    var open by remember { mutableStateOf(false) }
-    IconButton(onClick = { open = true }) { Icon(Icons.Filled.MoreVert, "Agent controls") }
-    DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-        DropdownMenuItem(
-            text = { Text("Refresh chat") },
-            onClick = { open = false; onRefreshChat() },
-            leadingIcon = { Icon(Icons.Filled.Refresh, null) },
-        )
-        DropdownMenuItem(
-            text = { Text("Send my clipboard to PC") },
-            onClick = { open = false; onPushClipboard() },
-            leadingIcon = { Icon(Icons.Filled.ContentPaste, null) },
-        )
-        DropdownMenuItem(
-            text = { Text("Copy PC clipboard") },
-            onClick = { open = false; onPullClipboard() },
-            leadingIcon = { Icon(Icons.Filled.ContentCopy, null) },
-        )
-        DropdownMenuItem(
-            text = { Text("Stop current step") },
-            enabled = hasPending,
-            onClick = { open = false; onStop() },
-            leadingIcon = { Icon(Icons.Filled.Stop, null) },
-        )
-    }
-}

@@ -47,6 +47,7 @@ fun SettingsScreen(
     onClose: () -> Unit,
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
+    val ctx = androidx.compose.ui.platform.LocalContext.current
 
     Scaffold(
         topBar = {
@@ -168,36 +169,21 @@ fun SettingsScreen(
 
             Spacer(Modifier.height(24.dp))
 
-            Text("Virtual Cursor Preferences", style = MaterialTheme.typography.titleMedium)
+            // Clipboard sync (moved here from the top-bar overflow menu).
+            Text("Clipboard", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(8.dp))
-            
-            Text("Cursor Size: ${state.cursorSize.toInt()} dp", style = MaterialTheme.typography.bodyMedium)
-            Slider(
-                value = state.cursorSize,
-                onValueChange = { vm.onCursorSize(it) },
-                valueRange = 4f..64f
-            )
-            
-            Text("Cursor Transparency: ${(state.cursorAlpha * 100).toInt()}%", style = MaterialTheme.typography.bodyMedium)
-            Slider(
-                value = state.cursorAlpha,
-                onValueChange = { vm.onCursorAlpha(it) },
-                valueRange = 0.1f..1.0f
-            )
-
-            Text("Cursor Tilt: ${state.cursorTilt.toInt()}°", style = MaterialTheme.typography.bodyMedium)
-            Slider(
-                value = state.cursorTilt,
-                onValueChange = { vm.onCursorTilt(it) },
-                valueRange = -180f..180f
-            )
-
-            Text("Cursor Y-Offset: ${state.cursorOffsetY.toInt()} dp", style = MaterialTheme.typography.bodyMedium)
-            Slider(
-                value = state.cursorOffsetY,
-                onValueChange = { vm.onCursorOffsetY(it) },
-                valueRange = -80f..80f
-            )
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedButton(onClick = { vm.pushClipboard(ctx) }, modifier = Modifier.weight(1f)) {
+                    Text("Send to PC")
+                }
+                OutlinedButton(onClick = { vm.pullClipboard(ctx) }, modifier = Modifier.weight(1f)) {
+                    Text("Copy from PC")
+                }
+            }
+            state.clipboardMessage?.let {
+                Spacer(Modifier.height(8.dp))
+                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
 
             Spacer(Modifier.height(24.dp))
 
