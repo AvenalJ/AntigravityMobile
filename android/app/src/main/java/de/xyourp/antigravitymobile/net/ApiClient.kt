@@ -52,7 +52,12 @@ class ApiClient(private val settingsProvider: () -> ConnectionSettings) {
     private fun settings() = settingsProvider()
 
     private suspend fun getRaw(path: String): String = withContext(Dispatchers.IO) {
-        val req = Request.Builder().url(settings().restUrl(path)).get().build()
+        val builder = Request.Builder().url(settings().restUrl(path)).get()
+        // Send the pairing token on GETs too — paired endpoints like /api/dirs
+        // otherwise 403 and the error JSON silently parses into an empty result.
+        val token = settings().deviceToken
+        if (token.isNotBlank()) builder.header("x-device-token", token)
+        val req = builder.build()
         client.newCall(req).execute().use { resp ->
             val body = resp.body?.string().orEmpty()
             if (!resp.isSuccessful && body.isBlank()) {
