@@ -12,7 +12,7 @@
  */
 
 import express from 'express';
-import { networkInterfaces } from 'os';
+import { networkInterfaces, tmpdir } from 'os';
 import { createServer } from 'http';
 import { spawn } from 'child_process';
 import { WebSocketServer, WebSocket } from 'ws';
@@ -2331,6 +2331,73 @@ app.get('/api/files/raw', (req, res) => {
 
         res.set('Content-Type', mimeTypes[ext] || 'application/octet-stream');
         res.sendFile(resolvedPath);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Download a single file (any type) to the mobile device.
+app.get('/api/files/download', (req, res) => {
+    try {
+        const filePath = req.query.path;
+        if (!filePath) return res.status(400).json({ error: 'Path required' });
+
+        const resolvedPath = resolve(filePath);
+        const workspaceRoot = resolve(workspacePath);
+        if (!pathStartsWith(resolvedPath, workspaceRoot)) {
+            return res.status(403).json({ error: 'Access denied - outside workspace' });
+        }
+        if (!existsSync(resolvedPath)) return res.status(404).json({ error: 'File not found' });
+        if (statSync(resolvedPath).isDirectory()) {
+            return res.status(400).json({ error: 'Path is a folder — use /api/files/download-zip' });
+        }
+        res.download(resolvedPath, basename(resolvedPath));
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Download multiple files and/or folders as a single ZIP. Built with PowerShell
+// Compress-Archive so no extra npm dependency is needed (the bridge is Windows).
+app.post('/api/files/download-zip', (req, res) => {
+    try {
+        const paths = Array.isArray(req.body?.paths) ? req.body.paths : [];
+        if (paths.length === 0) return res.status(400).json({ error: 'No paths provided' });
+
+        const workspaceRoot = resolve(workspacePath);
+        const resolved = [];
+        for (const p of paths) {
+            const rp = resolve(p);
+            if (!pathStartsWith(rp, workspaceRoot)) {
+                return res.status(403).json({ error: 'Access denied - outside workspace' });
+            }
+            if (!existsSync(rp)) return res.status(404).json({ error: `Not found: ${p}` });
+            resolved.push(rp);
+        }
+
+        const stamp = Date.now().toString(36) + randomBytes(3).toString('hex');
+        const listFile = join(tmpdir(), `agz-list-${stamp}.txt`);
+        const zipFile = join(tmpdir(), `agz-${stamp}.zip`);
+        writeFileSync(listFile, resolved.join('\n'), 'utf-8');
+
+        // Read the path list from a file + pass output path via env to avoid any
+        // command-injection / quoting issues with spaces or special characters.
+        const ps = "$ErrorActionPreference='Stop'; " +
+            "$items = Get-Content -LiteralPath $env:AGZ_LIST; " +
+            "Compress-Archive -LiteralPath $items -DestinationPath $env:AGZ_OUT -Force";
+        const child = spawn('powershell', ['-NoProfile', '-NonInteractive', '-Command', ps], {
+            env: { ...process.env, AGZ_LIST: listFile, AGZ_OUT: zipFile },
+        });
+        let errOut = '';
+        child.stderr.on('data', d => { errOut += d.toString(); });
+        child.on('close', (code) => {
+            try { unlinkSync(listFile); } catch (e) { /* best effort */ }
+            if (code !== 0 || !existsSync(zipFile)) {
+                return res.status(500).json({ error: 'Failed to create archive: ' + (errOut.slice(0, 200) || `exit ${code}`) });
+            }
+            const zipName = (resolved.length === 1 ? basename(resolved[0]) : `antigravity-files-${resolved.length}`) + '.zip';
+            res.download(zipFile, zipName, () => { try { unlinkSync(zipFile); } catch (e) { /* best effort */ } });
+        });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }

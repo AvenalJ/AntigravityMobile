@@ -4,6 +4,8 @@ import de.xyourp.antigravitymobile.data.ConnectionSettings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import okhttp3.MediaType.Companion.toMediaType
@@ -26,6 +28,15 @@ class ApiClient(private val settingsProvider: () -> ConnectionSettings) {
         .readTimeout(10, TimeUnit.SECONDS)
         .writeTimeout(10, TimeUnit.SECONDS)
         .callTimeout(10, TimeUnit.SECONDS)
+        .build()
+
+    /** Separate client for file transfers — no overall call timeout so large
+     *  files / zips aren't aborted mid-download. */
+    private val downloadClient = OkHttpClient.Builder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(0, TimeUnit.MILLISECONDS)
+        .writeTimeout(0, TimeUnit.MILLISECONDS)
+        .callTimeout(0, TimeUnit.MILLISECONDS)
         .build()
 
     companion object {
@@ -148,6 +159,33 @@ class ApiClient(private val settingsProvider: () -> ConnectionSettings) {
 
     /** URL of the embeddable web chat page (structured chat + conversation picker). */
     fun webChatUrl(): String = settings().restUrl("/minimal.html")
+
+    // --- File transfers (download to the phone) ---
+    // Return the raw OkHttp Response so the caller can stream the body straight
+    // into MediaStore. The caller MUST close the response.
+
+    private fun authedBuilder(path: String): Request.Builder {
+        val b = Request.Builder().url(settings().restUrl(path))
+        val token = settings().deviceToken
+        if (token.isNotBlank()) b.header("x-device-token", token)
+        return b
+    }
+
+    /** Open a stream for a single file download (any type). */
+    fun openFileDownload(path: String): okhttp3.Response {
+        val encoded = java.net.URLEncoder.encode(path, "UTF-8")
+        val req = authedBuilder("/api/files/download?path=$encoded").get().build()
+        return downloadClient.newCall(req).execute()
+    }
+
+    /** Open a stream for a ZIP of the given files/folders. */
+    fun openZipDownload(paths: List<String>): okhttp3.Response {
+        val body = buildJsonObject {
+            put("paths", kotlinx.serialization.json.buildJsonArray { paths.forEach { add(it) } })
+        }.toString()
+        val req = authedBuilder("/api/files/download-zip").post(body.toRequestBody(JSON_MEDIA)).build()
+        return downloadClient.newCall(req).execute()
+    }
 
     /**
      * One-time pairing against an explicit [target] (the host the user just

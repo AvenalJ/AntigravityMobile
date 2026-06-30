@@ -1,7 +1,9 @@
 package de.xyourp.antigravitymobile.ui.files
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,14 +22,18 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.DriveFolderUpload
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Divider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -47,6 +53,11 @@ fun FilesScreen(
     onOpenItem: (FileItem) -> Unit,
     onUp: () -> Unit,
     onCloseFile: () -> Unit,
+    onStartSelection: (FileItem) -> Unit = {},
+    onToggleSelect: (FileItem) -> Unit = {},
+    onClearSelection: () -> Unit = {},
+    onDownloadItem: (FileItem) -> Unit = {},
+    onDownloadSelected: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     if (state.openFile != null || state.fileLoading || state.fileError != null) {
@@ -55,22 +66,44 @@ fun FilesScreen(
     }
 
     Column(modifier.fillMaxSize()) {
-        // Current folder header
+        // Header switches to a selection action bar while picking items to download.
         Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 1.dp) {
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(Icons.Filled.FolderOpen, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    state.path?.substringAfterLast('\\')?.substringAfterLast('/') ?: "Files",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+            if (state.selecting) {
+                Row(
+                    Modifier.fillMaxWidth().padding(start = 4.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(onClick = onClearSelection) { Icon(Icons.Filled.Close, "Cancel selection") }
+                    Text(
+                        "${state.selected.size} selected",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f),
+                    )
+                    IconButton(onClick = onDownloadSelected, enabled = state.selected.isNotEmpty() && !state.downloading) {
+                        Icon(Icons.Filled.Download, "Download selected", tint = MaterialTheme.colorScheme.primary)
+                    }
+                }
+            } else {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Filled.FolderOpen, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        state.path?.substringAfterLast('\\')?.substringAfterLast('/') ?: "Files",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
             }
+        }
+        if (state.downloading) {
+            LinearProgressIndicator(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.primary)
         }
         Divider(color = MaterialTheme.colorScheme.outlineVariant)
 
@@ -105,7 +138,14 @@ fun FilesScreen(
                         }
                     }
                     items(state.items, key = { it.path }) { item ->
-                        FileRow(item, onClick = { onOpenItem(item) })
+                        FileRow(
+                            item = item,
+                            selecting = state.selecting,
+                            selected = item.path in state.selected,
+                            onClick = { if (state.selecting) onToggleSelect(item) else onOpenItem(item) },
+                            onLongClick = { onStartSelection(item) },
+                            onDownload = { onDownloadItem(item) },
+                        )
                         Divider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
                     }
                 }
@@ -114,19 +154,34 @@ fun FilesScreen(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun FileRow(item: FileItem, onClick: () -> Unit) {
+private fun FileRow(
+    item: FileItem,
+    selecting: Boolean,
+    selected: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+    onDownload: () -> Unit,
+) {
     Row(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 12.dp),
+        Modifier.fillMaxWidth()
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .padding(start = 16.dp, end = 4.dp, top = 12.dp, bottom = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(
-            if (item.isDirectory) Icons.Filled.Folder else Icons.Filled.Description,
-            null,
-            tint = if (item.isDirectory) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(22.dp),
-        )
-        Spacer(Modifier.width(14.dp))
+        if (selecting) {
+            Checkbox(checked = selected, onCheckedChange = { onClick() })
+            Spacer(Modifier.width(6.dp))
+        } else {
+            Icon(
+                if (item.isDirectory) Icons.Filled.Folder else Icons.Filled.Description,
+                null,
+                tint = if (item.isDirectory) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(22.dp),
+            )
+            Spacer(Modifier.width(14.dp))
+        }
         Column(Modifier.weight(1f)) {
             Text(item.name, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (!item.isDirectory) {
@@ -137,6 +192,16 @@ private fun FileRow(item: FileItem, onClick: () -> Unit) {
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        // Quick per-row download (files and folders). Hidden in selection mode.
+        if (!selecting) {
+            IconButton(onClick = onDownload) {
+                Icon(
+                    Icons.Filled.Download,
+                    contentDescription = "Download ${item.name}",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }

@@ -49,6 +49,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -118,6 +119,10 @@ fun MainScaffold(repo: AppRepository, onOpenSettings: () -> Unit) {
     LaunchedEffect(Unit) {
         screenVm.errors.collect { snackbarHostState.showSnackbar(it) }
     }
+    LaunchedEffect(Unit) {
+        filesVm.messages.collect { snackbarHostState.showSnackbar(it) }
+    }
+    val filesContext = LocalContext.current
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -177,6 +182,11 @@ fun MainScaffold(repo: AppRepository, onOpenSettings: () -> Unit) {
                         onOpenItem = { filesVm.openItem(it) },
                         onUp = { filesVm.goUp() },
                         onCloseFile = { filesVm.closeFile() },
+                        onStartSelection = { filesVm.startSelection(it) },
+                        onToggleSelect = { filesVm.toggleSelected(it) },
+                        onClearSelection = { filesVm.clearSelection() },
+                        onDownloadItem = { filesVm.downloadItem(filesContext, it) },
+                        onDownloadSelected = { filesVm.downloadSelected(filesContext) },
                     )
                 }
                 Tab.Git -> Column(Modifier.fillMaxSize()) {
