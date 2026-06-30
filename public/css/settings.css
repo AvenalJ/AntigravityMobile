@@ -172,6 +172,61 @@
         }
 
         /* Quota Cards */
+        /* Usage hero — model quota promoted to the top of the main view */
+        .usage-hero-section {
+            flex-shrink: 0;
+            margin: 12px 16px 4px;
+            padding: 14px 16px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+        }
+
+        .usage-hero-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .usage-hero-title {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .usage-hero-title .section-icon {
+            width: 18px;
+            height: 18px;
+            color: var(--accent-primary);
+        }
+
+        .usage-hero-refresh {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 30px;
+            height: 30px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--bg-glass);
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .usage-hero-refresh:hover {
+            color: var(--accent-primary);
+            border-color: var(--accent-primary);
+        }
+
+        /* The hero shows a compact single row of quota rings. */
+        #usageHero .quota-grid {
+            margin-top: 10px;
+        }
+
         .quota-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));

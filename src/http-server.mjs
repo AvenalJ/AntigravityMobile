@@ -437,6 +437,10 @@ function broadcast(event, data) {
     });
 }
 
+// Push agent-status transitions (input needed / completed / error) to mobile
+// clients so the app can raise a local notification, even when backgrounded.
+ChatStream.setNotifyCallback((evt) => broadcast('agent_event', evt));
+
 // ============================================================================
 // HTTP Server
 // ============================================================================

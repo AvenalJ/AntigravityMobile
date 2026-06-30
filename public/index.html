@@ -48,6 +48,24 @@
         <style id="cascadeStyles"></style>
 
         <div class="chat-container">
+            <!-- Usage (model quota) — front and centre -->
+            <section class="usage-hero-section">
+                <div class="usage-hero-head">
+                    <span class="usage-hero-title"><svg class="section-icon" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2">
+                            <path d="M12 20V10"></path>
+                            <path d="M18 20V4"></path>
+                            <path d="M6 20v-4"></path>
+                        </svg> Usage</span>
+                    <button class="usage-hero-refresh" onclick="loadQuota('usageHero')" title="Refresh usage"><svg
+                            viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                            <polyline points="23 4 23 10 17 10"></polyline>
+                            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                        </svg></button>
+                </div>
+                <div id="usageHero"></div>
+            </section>
+
             <!-- Live cascade content will be injected here -->
             <div id="cascade-container" class="cascade-view">
                 <div class="chat-empty">

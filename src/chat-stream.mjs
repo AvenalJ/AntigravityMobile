@@ -22,10 +22,14 @@ let recentlyClickedXpaths = new Set();
 let autoAcceptCallback = null;
 let debugCallback = null;
 let errorCallback = null;
+let notifyCallback = null;
 
 export function setAutoAcceptCallback(cb) { autoAcceptCallback = cb; }
 export function setDebugCallback(cb) { debugCallback = cb; }
 export function setErrorCallback(cb) { errorCallback = cb; }
+/** Fired on agent-status transitions ({ kind, message }) so the server can push
+ *  them to mobile clients (input_needed | complete | error). Independent of Telegram. */
+export function setNotifyCallback(cb) { notifyCallback = cb; }
 
 const CDP_PORTS = [9222, 9333, 9000, 9001, 9002, 9003];
 
@@ -625,9 +629,22 @@ function checkAndNotify(html) {
     const hasPermissionDialog = /needs permission/i.test(html) && /Waiting/i.test(html);
     const hasActionableInput = actionButtons.length > 0 || hasCommandDialog || hasPermissionDialog;
 
-    // Save previous state, then update
+    // Save previous state, then update. Preserve dialogError, which is owned by
+    // checkErrorDialogs() — otherwise it resets every poll and re-fires error alerts.
     const prevState = { ...lastNotifState };
-    lastNotifState = { inputNeeded: hasActionableInput };
+    lastNotifState = { inputNeeded: hasActionableInput, dialogError: lastNotifState.dialogError };
+
+    const inputNeededNow = hasActionableInput && !prevState.inputNeeded;
+
+    // Build the input-needed message (shared by app + Telegram).
+    let inputMsg = 'Your input is required in the chat.';
+    if (hasCommandDialog) inputMsg = 'Your input is required — Run command?';
+    else if (hasPermissionDialog) inputMsg = 'Your input is required — Permission needed.';
+    else if (actionButtons.length > 0) inputMsg = `Your input is required — ${actionButtons.map(b => b.label).join(', ')}`;
+
+    // --- App notifications (WebSocket → phone) — independent of Telegram ---
+    if (inputNeededNow) notifyCallback?.({ kind: 'input_needed', message: inputMsg });
+    if (agentJustStopped) notifyCallback?.({ kind: 'complete', message: 'Agent has completed the process.' });
 
     // --- Telegram notifications ---
     if (!TelegramBot.isRunning()) return;
@@ -636,13 +653,9 @@ function checkAndNotify(html) {
     const notifications = tgConfig.notifications || {};
 
     // 1. Input needed: actionable buttons or dialogs just appeared
-    if (hasActionableInput && !prevState.inputNeeded && notifications.onInputNeeded !== false) {
+    if (inputNeededNow && notifications.onInputNeeded !== false) {
         if (debugCallback) debugCallback('Sending INPUT_NEEDED notification');
-        let msg = 'Your input is required in the chat.';
-        if (hasCommandDialog) msg = 'Your input is required — Run command?';
-        else if (hasPermissionDialog) msg = 'Your input is required — Permission needed.';
-        else if (actionButtons.length > 0) msg = `Your input is required — ${actionButtons.map(b => b.label).join(', ')}`;
-        TelegramBot.sendNotification('input_needed', msg);
+        TelegramBot.sendNotification('input_needed', inputMsg);
     }
 
     // 2. Agent just stopped (HTML unchanged for 3 polls after activity) — completion only
@@ -659,9 +672,10 @@ function checkAndNotify(html) {
  * Runs every poll cycle and sends Telegram notifications on transition.
  */
 async function checkErrorDialogs(cdp, contextId) {
-    if (!TelegramBot.isRunning()) return;
+    // Run the scan if either the app (notifyCallback) or Telegram wants errors.
     const tgConfig = Config.getConfig('telegram');
-    if (!tgConfig?.enabled || tgConfig.notifications?.onError === false) return;
+    const tgWantsErrors = TelegramBot.isRunning() && tgConfig?.enabled && tgConfig.notifications?.onError !== false;
+    if (!notifyCallback && !tgWantsErrors) return;
 
     const DIALOG_SCRIPT = `(function() {
         // Look for dialog/modal elements with error text
@@ -707,7 +721,8 @@ async function checkErrorDialogs(cdp, contextId) {
             lastNotifState.dialogError = true;
             if (debugCallback) debugCallback(`Error dialog detected: ${dialogError.error}`);
             if (errorCallback) errorCallback(dialogError.error);
-            TelegramBot.sendNotification('error', dialogError.error);
+            notifyCallback?.({ kind: 'error', message: dialogError.error });
+            if (tgWantsErrors) TelegramBot.sendNotification('error', dialogError.error);
         } else if (!dialogError && lastNotifState.dialogError) {
             // Dialog dismissed
             lastNotifState.dialogError = false;

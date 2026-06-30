@@ -69,11 +69,12 @@
         let quotaData = null;
         let quotaLoading = false;
 
-        async function loadQuota() {
+        async function loadQuota(containerId = 'quotaContainer') {
             if (quotaLoading) return;
             quotaLoading = true;
 
-            const container = document.getElementById('quotaContainer');
+            const container = document.getElementById(containerId);
+            if (!container) { quotaLoading = false; return; }
             container.innerHTML = `
                     <div class="quota-loading">
                         <div class="spinner"></div>
@@ -85,7 +86,7 @@
                 const res = await authFetch(`${serverUrl}/api/quota`);
                 const data = await res.json();
                 quotaData = data;
-                renderQuota(data);
+                renderQuota(data, containerId);
             } catch (e) {
                 container.innerHTML = `
                         <div class="quota-error">
@@ -99,8 +100,9 @@
             }
         }
 
-        function renderQuota(data) {
-            const container = document.getElementById('quotaContainer');
+        function renderQuota(data, containerId = 'quotaContainer') {
+            const container = document.getElementById(containerId);
+            if (!container) return;
 
             if (!data.available || !data.models || data.models.length === 0) {
                 container.innerHTML = `

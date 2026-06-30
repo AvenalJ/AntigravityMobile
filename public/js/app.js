@@ -13,6 +13,9 @@ async function init() {
     refreshTaskQueue();
     loadAssistChatHistory();
     loadAssistStatusBadge();
+    // Usage (model quota) shown front-and-centre on the main view; refresh periodically.
+    loadQuota('usageHero');
+    setInterval(() => loadQuota('usageHero'), 60000);
 }
 
 init();
