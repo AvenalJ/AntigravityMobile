@@ -1,6 +1,7 @@
 package de.xyourp.antigravitymobile.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -167,6 +168,7 @@ fun MainScaffold(repo: AppRepository, onOpenSettings: () -> Unit) {
             when (tab) {
                 Tab.Chat -> ChatScreen(
                     webChatUrl = chatVm.webChatUrl(),
+                    darkTheme = isSystemInDarkTheme(),
                 )
                 Tab.Files -> Column(Modifier.fillMaxSize()) {
                     RepoHeader(session.workspaceName) { showRepoSheet = true }

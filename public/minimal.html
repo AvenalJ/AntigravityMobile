@@ -11,32 +11,41 @@
     <link rel="stylesheet" href="/css/chat.css">
     <style>
         :root {
-            /* Neutral charcoal palette matching the Antigravity desktop app */
-            --bg-dark: #1b1b1d;
-            --bg-primary: #1b1b1d;
-            --bg-card: #212123;
-            --bg-sidebar: #161618;
+            /* Palette mirrors the native app theme (teal accent + dark-green
+               neutral surfaces) so the chat looks like the rest of the app. */
+            --bg-dark: #0F1413;
+            --bg-primary: #0F1413;
+            --bg-card: #151B1A;
+            --bg-sidebar: #0C100F;
             --bg-glass: rgba(255, 255, 255, 0.05);
-            --bg-bubble: #2c2c30;
+            --bg-bubble: #1E2624;
             --accent-primary: #3DD6B6;
-            --accent-strong: #2bbf9f;
+            --accent-strong: #2BB89B;
             --accent-glow: rgba(61, 214, 182, 0.18);
-            --on-accent: #07241d;
-            --text-primary: #e8e8ea;
-            --text-secondary: rgba(232, 232, 234, 0.78);
-            --text-muted: rgba(232, 232, 234, 0.42);
-            --border: rgba(255, 255, 255, 0.09);
-            --success: #3fb950;
-            --error: #f85149;
+            --on-accent: #002019;
+            --text-primary: #E6ECEA;
+            --text-secondary: #A9B4B1;
+            --text-muted: rgba(169, 180, 177, 0.55);
+            --border: #2C3633;
+            --success: #2FB36B;
+            --error: #E5534B;
         }
 
         .light-theme {
-            --bg-dark: #f5f5f7;
-            --bg-card: rgba(255, 255, 255, 0.9);
-            --text-primary: #1a1a1a;
-            --text-secondary: rgba(0, 0, 0, 0.7);
-            --text-muted: rgba(0, 0, 0, 0.4);
-            --border: rgba(0, 0, 0, 0.1);
+            --bg-dark: #FBFCFC;
+            --bg-primary: #FBFCFC;
+            --bg-card: #FFFFFF;
+            --bg-sidebar: #F2F5F4;
+            --bg-glass: rgba(0, 0, 0, 0.04);
+            --bg-bubble: #EAEFED;
+            --accent-primary: #1E8F79;
+            --accent-strong: #2BB89B;
+            --accent-glow: rgba(30, 143, 121, 0.15);
+            --on-accent: #FFFFFF;
+            --text-primary: #12201D;
+            --text-secondary: #49544F;
+            --text-muted: rgba(73, 84, 79, 0.55);
+            --border: #C8D2CF;
         }
 
         * {
@@ -89,6 +98,12 @@
             flex-shrink: 0;
         }
         .icon-btn:hover { background: var(--bg-glass); color: var(--text-primary); }
+        .icon-btn.active { background: var(--accent-glow); color: var(--accent-primary); }
+
+        /* "Hide thinking" — collapse the granular chain-of-thought step timeline,
+           leaving the "Worked for…" summary and the agent's answer ("big thoughts"). */
+        .hide-cot .sc-steps { display: none; }
+        .hide-cot .sc-worked { margin: 0; }
 
         /* Sidebar (drawer) */
         .sidebar {
@@ -344,7 +359,7 @@
 
         .quick-chip {
             padding: 6px 14px;
-            background: rgba(255, 255, 255, 0.05);
+            background: var(--bg-glass);
             border: 1px solid var(--border);
             border-radius: 20px;
             color: var(--text-secondary);
@@ -355,8 +370,8 @@
         }
 
         .quick-chip:hover {
-            background: rgba(139, 92, 246, 0.15);
-            border-color: rgba(139, 92, 246, 0.4);
+            background: var(--accent-glow);
+            border-color: var(--accent-primary);
             color: var(--accent-primary);
         }
 
@@ -368,7 +383,7 @@
         .chat-input {
             flex: 1;
             padding: 12px 16px;
-            background: rgba(255, 255, 255, 0.05);
+            background: var(--bg-glass);
             border: 1px solid var(--border);
             border-radius: 24px;
             color: var(--text-primary);
@@ -513,8 +528,7 @@
         .remote-prompt-item {
             font-size: 13px;
             color: var(--text-secondary);
-            background: rgba(255, 255, 255, 0.05);
-            /* Same as --bg-glass */
+            background: var(--bg-glass);
             padding: 8px 12px;
             border-radius: 8px;
             border: 1px solid var(--border);
@@ -528,7 +542,7 @@
         .remote-prompt-item:last-child {
             color: var(--text-primary);
             border-color: var(--accent-primary);
-            background: rgba(14, 165, 233, 0.1);
+            background: var(--accent-glow);
         }
 
         @keyframes slideInUp {
@@ -767,6 +781,7 @@
                 <div class="topbar-title" id="convoTitle">Antigravity</div>
                 <div class="status-dot" id="statusDot"></div>
                 <div class="topbar-spacer"></div>
+                <button class="icon-btn" id="cotToggle" onclick="toggleCot()" title="Hide thinking steps"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.1h6c0-.8.4-1.6 1-2.1A7 7 0 0 0 12 2z"/></svg></button>
                 <button class="icon-btn" id="themeToggle" onclick="toggleTheme()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></button>
             </header>
 
@@ -809,9 +824,33 @@
         // Theme
         // ====================================================================
         function initTheme() {
-            const saved = localStorage.getItem('theme') || 'dark';
+            // The native app passes its current theme via the URL hash
+            // (#theme=dark|light) so the chat matches the rest of the app.
+            const fromApp = (location.hash.match(/theme=(dark|light)/) || [])[1];
+            if (fromApp) localStorage.setItem('theme', fromApp);
+            const saved = fromApp || localStorage.getItem('theme') || 'dark';
             document.body.classList.toggle('light-theme', saved === 'light');
             updateThemeIcon();
+        }
+
+        // ====================================================================
+        // Hide chain-of-thought (show only the summary + answer)
+        // ====================================================================
+        function initCot() {
+            document.body.classList.toggle('hide-cot', localStorage.getItem('hideCot') === '1');
+            updateCotIcon();
+        }
+        function toggleCot() {
+            const hide = !document.body.classList.contains('hide-cot');
+            document.body.classList.toggle('hide-cot', hide);
+            localStorage.setItem('hideCot', hide ? '1' : '0');
+            updateCotIcon();
+        }
+        function updateCotIcon() {
+            const on = document.body.classList.contains('hide-cot');
+            const btn = document.getElementById('cotToggle');
+            btn.classList.toggle('active', on);
+            btn.title = on ? 'Show thinking steps' : 'Hide thinking steps';
         }
 
         function toggleTheme() {
@@ -1288,6 +1327,7 @@
         // Init
         // ====================================================================
         initTheme();
+        initCot();
         checkAuth().then((authOk) => {
             if (authOk) {
                 connectWebSocket();

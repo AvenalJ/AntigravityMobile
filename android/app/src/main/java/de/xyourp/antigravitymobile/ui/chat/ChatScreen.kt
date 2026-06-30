@@ -31,8 +31,18 @@ import androidx.compose.ui.viewinterop.AndroidView
 @Composable
 fun ChatScreen(
     webChatUrl: String,
+    darkTheme: Boolean,
     modifier: Modifier = Modifier,
 ) {
+    // Pass the app's current theme to the web page via the URL hash so the chat
+    // matches the rest of the app (the page reads #theme=dark|light on load).
+    val url = remember(webChatUrl, darkTheme) {
+        if (webChatUrl.startsWith("http")) {
+            webChatUrl + "#theme=" + if (darkTheme) "dark" else "light"
+        } else {
+            webChatUrl
+        }
+    }
     var loadedUrl by remember { mutableStateOf<String?>(null) }
     Box(modifier.fillMaxSize().imePadding()) {
         AndroidView(
@@ -53,9 +63,9 @@ fun ChatScreen(
                 }
             },
             update = { web ->
-                if (loadedUrl != webChatUrl && webChatUrl.startsWith("http")) {
-                    loadedUrl = webChatUrl
-                    web.loadUrl(webChatUrl)
+                if (loadedUrl != url && url.startsWith("http")) {
+                    loadedUrl = url
+                    web.loadUrl(url)
                 }
             },
         )
