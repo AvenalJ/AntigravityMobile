@@ -532,18 +532,18 @@ private fun WaitingOverlay(everLoaded: Boolean) {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Icon(Icons.Filled.DesktopWindows, null, modifier = Modifier.size(48.dp), tint = Color(0xFF8A9A96))
+        Icon(Icons.Filled.DesktopWindows, null, modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.size(14.dp))
         Text(
             if (everLoaded) "Live screen paused" else "Waiting for the Antigravity window",
-            color = Color(0xFFE6ECEA),
+            color = MaterialTheme.colorScheme.onSurface,
             style = MaterialTheme.typography.titleSmall,
         )
         Spacer(Modifier.size(6.dp))
         Text(
             "No frames are coming through. Make sure the Antigravity window is open and " +
                 "not minimised on your laptop — a minimised window can't be captured.",
-            color = Color(0xFF8A9A96),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodySmall,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
         )

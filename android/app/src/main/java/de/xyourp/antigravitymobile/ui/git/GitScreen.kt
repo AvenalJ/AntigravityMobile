@@ -59,6 +59,7 @@ import androidx.compose.ui.unit.sp
 import de.xyourp.antigravitymobile.net.GitFile
 import de.xyourp.antigravitymobile.ui.components.EmptyState
 import de.xyourp.antigravitymobile.ui.theme.AcceptGreen
+import de.xyourp.antigravitymobile.ui.theme.GitModifiedAmber
 import de.xyourp.antigravitymobile.ui.theme.RejectRed
 
 @Composable
@@ -233,7 +234,7 @@ private fun StatusBadge(file: GitFile) {
     val color = when (code) {
         "A" -> AcceptGreen
         "D" -> RejectRed
-        "M" -> Color(0xFFE0A33E)
+        "M" -> GitModifiedAmber
         "R" -> MaterialTheme.colorScheme.primary
         "U" -> MaterialTheme.colorScheme.tertiary
         else -> MaterialTheme.colorScheme.onSurfaceVariant

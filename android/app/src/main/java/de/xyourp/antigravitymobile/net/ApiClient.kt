@@ -97,13 +97,54 @@ class ApiClient(private val settingsProvider: () -> ConnectionSettings) {
     suspend fun workspace(): WorkspaceResponse =
         json.decodeFromString(getRaw("/api/workspace"))
 
-    suspend fun chatSnapshot(): ChatSnapshot =
-        json.decodeFromString(getRaw("/api/chat/snapshot"))
-
     /** Ask the bridge to begin polling the IDE chat and broadcasting `chat_update`. */
     suspend fun startChatStream() {
         runCatching { postRaw("/api/chat/start", "{}") }
     }
+
+    // --- Native structured chat ---
+
+    suspend fun chatStructured(): StructuredChat =
+        json.decodeFromString(getRaw("/api/chat/structured"))
+
+    suspend fun chatConversations(): ConversationsResponse =
+        json.decodeFromString(getRaw("/api/chat/conversations"))
+
+    suspend fun switchConversation(id: String): ActionResult =
+        json.decodeFromString(postRaw("/api/chat/conversations/switch", bodyOf("id", id)))
+
+    suspend fun newConversation(): ActionResult =
+        json.decodeFromString(postRaw("/api/chat/conversations/new", "{}"))
+
+    /** Send a message to the agent (types into the composer and submits). */
+    suspend fun cdpInject(text: String, submit: Boolean = true): ActionResult =
+        json.decodeFromString(postRaw("/api/cdp/inject", buildJsonObject {
+            put("text", text); put("submit", submit)
+        }.toString()))
+
+    /** Forward a click on an in-chat action button (Run/Accept/Reject) by xpath. */
+    suspend fun cdpClick(xpath: String, text: String): ActionResult =
+        json.decodeFromString(postRaw("/api/cdp/click", buildJsonObject {
+            put("xpath", xpath); put("text", text)
+        }.toString()))
+
+    /** Answer a multiple-choice prompt: kind = "option" | "other" | "skip". */
+    suspend fun answerPrompt(
+        kind: String,
+        optionXpath: String? = null,
+        otherXpath: String? = null,
+        text: String? = null,
+        submitXpath: String? = null,
+        skipXpath: String? = null,
+    ): ActionResult =
+        json.decodeFromString(postRaw("/api/chat/answer", buildJsonObject {
+            put("kind", kind)
+            optionXpath?.let { put("optionXpath", it) }
+            otherXpath?.let { put("otherXpath", it) }
+            text?.let { put("text", it) }
+            submitXpath?.let { put("submitXpath", it) }
+            skipXpath?.let { put("skipXpath", it) }
+        }.toString()))
 
     suspend fun models(): ModelsResponse =
         json.decodeFromString(getRaw("/api/models"))
@@ -156,9 +197,6 @@ class ApiClient(private val settingsProvider: () -> ConnectionSettings) {
 
     /** Cache-busting URL for the live screen frame (load with Coil). */
     fun liveScreenUrl(ts: Long): String = settings().restUrl("/api/screen/live.jpg?ts=$ts")
-
-    /** URL of the embeddable web chat page (structured chat + conversation picker). */
-    fun webChatUrl(): String = settings().restUrl("/minimal.html")
 
     // --- File transfers (download to the phone) ---
     // Return the raw OkHttp Response so the caller can stream the body straight

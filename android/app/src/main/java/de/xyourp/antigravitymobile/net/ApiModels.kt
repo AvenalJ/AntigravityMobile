@@ -210,3 +210,70 @@ data class GitActionResponse(
     val output: String? = null,
     val error: String? = null,
 )
+
+// ---- Structured chat (GET /api/chat/structured) — native chat renderer ----
+
+@Serializable
+data class ActivityStep(val kind: String = "step", val text: String = "")
+
+@Serializable
+data class ActionButton(val label: String = "", val xpath: String = "", val kind: String = "")
+
+@Serializable
+data class ChangeSummary(val summary: String = "", val add: String? = null, val del: String? = null)
+
+@Serializable
+data class StructuredMessage(
+    val role: String = "agent",            // "user" | "agent"
+    val text: String = "",                 // whitelisted HTML for agent prose
+    val working: Boolean = false,
+    val worked: String = "",
+    val activity: List<ActivityStep> = emptyList(),
+    val changes: ChangeSummary? = null,
+    val actions: List<ActionButton> = emptyList(),
+)
+
+@Serializable
+data class PromptOption(val label: String = "", val xpath: String = "")
+
+@Serializable
+data class AskPrompt(
+    val type: String = "choice",
+    val question: String = "",
+    val options: List<PromptOption> = emptyList(),
+    val otherXpath: String? = null,
+    val submitXpath: String? = null,
+    val skipXpath: String? = null,
+)
+
+@Serializable
+data class Artifact(
+    val open: Boolean = false,
+    val title: String = "",
+    val html: String = "",
+    val prevXpath: String? = null,
+    val nextXpath: String? = null,
+)
+
+@Serializable
+data class StructuredChat(
+    val found: Boolean = false,
+    val version: String = "",
+    val model: String = "",
+    val messages: List<StructuredMessage> = emptyList(),
+    val prompt: AskPrompt? = null,
+    val artifact: Artifact? = null,
+    val error: String? = null,
+)
+
+@Serializable
+data class Conversation(val id: String = "", val title: String = "", val active: Boolean = false)
+
+@Serializable
+data class ConversationsResponse(
+    val found: Boolean = false,
+    val conversations: List<Conversation> = emptyList(),
+)
+
+@Serializable
+data class ActionResult(val success: Boolean = false, val error: String? = null)

@@ -23,6 +23,7 @@ val LightOutline = Color(0xFFC8D2CF)
 val LightOnSurface = Color(0xFF12201D)
 val LightOnSurfaceVariant = Color(0xFF49544F)
 
-// Semantic action colours (diff accept / reject).
+// Semantic action colours (diff accept / reject / modified).
 val AcceptGreen = Color(0xFF2FB36B)
 val RejectRed = Color(0xFFE5534B)
+val GitModifiedAmber = Color(0xFFE0A33E)

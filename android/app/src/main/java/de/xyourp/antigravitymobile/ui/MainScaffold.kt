@@ -1,7 +1,6 @@
 package de.xyourp.antigravitymobile.ui
 
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -83,7 +82,6 @@ fun MainScaffold(repo: AppRepository, onOpenSettings: () -> Unit) {
     val screenVm: ScreenViewModel = viewModel(factory = appViewModelFactory { ScreenViewModel(repo) })
 
     val session by sessionVm.state.collectAsStateWithLifecycle()
-    val chat by chatVm.state.collectAsStateWithLifecycle()
     val files by filesVm.state.collectAsStateWithLifecycle()
     val git by gitVm.state.collectAsStateWithLifecycle()
     val currentFrame by screenVm.currentFrame.collectAsStateWithLifecycle()
@@ -153,7 +151,7 @@ fun MainScaffold(repo: AppRepository, onOpenSettings: () -> Unit) {
                     }
                     AgentControlsMenu(
                         hasPending = session.pendingApproval != null,
-                        onRefreshChat = { chatVm.loadSnapshot(initial = false) },
+                        onRefreshChat = { chatVm.load(initial = false) },
                         onStop = { sessionVm.respondApproval("reject") },
                     )
                     IconButton(onClick = onOpenSettings) { Icon(Icons.Filled.Settings, "Settings") }
@@ -171,10 +169,7 @@ fun MainScaffold(repo: AppRepository, onOpenSettings: () -> Unit) {
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
             when (tab) {
-                Tab.Chat -> ChatScreen(
-                    webChatUrl = chatVm.webChatUrl(),
-                    darkTheme = isSystemInDarkTheme(),
-                )
+                Tab.Chat -> ChatScreen(vm = chatVm)
                 Tab.Files -> Column(Modifier.fillMaxSize()) {
                     RepoHeader(session.workspaceName) { showRepoSheet = true }
                     FilesScreen(
