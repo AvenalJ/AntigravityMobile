@@ -1,6 +1,7 @@
 package de.xyourp.antigravitymobile
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -11,6 +12,12 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import de.xyourp.antigravitymobile.ui.AppRoot
 import de.xyourp.antigravitymobile.ui.theme.AntigravityTheme
+import kotlinx.coroutines.flow.MutableStateFlow
+
+/** Cross-process nav requests (e.g. a notification asking to open a tab). */
+object NavRequests {
+    val requestedTab = MutableStateFlow<String?>(null)
+}
 
 class MainActivity : ComponentActivity() {
 
@@ -21,6 +28,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         val repository = (application as AntigravityApp).repository
+        handleDeepLink(intent)
 
         // Ask for notification permission (API 33+) so agent alerts can show, then
         // start the background monitor that listens for `agent_event` frames.
@@ -36,5 +44,18 @@ class MainActivity : ComponentActivity() {
                 AppRoot(repository)
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleDeepLink(intent)
+    }
+
+    private fun handleDeepLink(intent: Intent?) {
+        intent?.getStringExtra(EXTRA_OPEN_TAB)?.let { NavRequests.requestedTab.value = it }
+    }
+
+    companion object {
+        const val EXTRA_OPEN_TAB = "open_tab"
     }
 }

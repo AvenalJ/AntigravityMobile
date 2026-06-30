@@ -1,11 +1,16 @@
 package de.xyourp.antigravitymobile.ui.files
 
 import android.content.Context
+import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import de.xyourp.antigravitymobile.data.AppRepository
 import de.xyourp.antigravitymobile.net.FileContentResponse
 import de.xyourp.antigravitymobile.net.FileItem
+import de.xyourp.antigravitymobile.net.UploadPart
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -133,6 +138,45 @@ class FilesViewModel(private val repo: AppRepository) : ViewModel() {
         if (items.isEmpty()) return
         download(context, items)
         clearSelection()
+    }
+
+    /** Upload phone files (from a document picker) into the current folder. */
+    fun upload(context: Context, uris: List<Uri>) {
+        val dir = _state.value.path ?: return
+        if (uris.isEmpty()) return
+        _state.value = _state.value.copy(downloading = true)
+        val appCtx = context.applicationContext
+        viewModelScope.launch {
+            val parts = withContext(Dispatchers.IO) {
+                uris.mapNotNull { uri ->
+                    runCatching {
+                        val cr = appCtx.contentResolver
+                        val bytes = cr.openInputStream(uri)?.use { it.readBytes() } ?: return@mapNotNull null
+                        UploadPart(displayName(cr, uri), cr.getType(uri), bytes)
+                    }.getOrNull()
+                }
+            }
+            val result = runCatching { repo.api.uploadFiles(dir, parts) }.getOrNull()
+            _state.value = _state.value.copy(downloading = false)
+            if (result?.success == true) {
+                _messages.tryEmit("Uploaded ${result.saved.size} file(s) to the PC")
+                refresh()
+            } else {
+                _messages.tryEmit("Upload failed" + (result?.error?.let { ": $it" } ?: ""))
+            }
+        }
+    }
+
+    private fun displayName(cr: android.content.ContentResolver, uri: Uri): String {
+        runCatching {
+            cr.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+                if (c.moveToFirst()) {
+                    val i = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (i >= 0) c.getString(i)?.let { return it }
+                }
+            }
+        }
+        return uri.lastPathSegment?.substringAfterLast('/') ?: "upload.bin"
     }
 
     private fun download(context: Context, items: List<FileItem>) {

@@ -19,8 +19,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
@@ -51,6 +53,8 @@ class AgentMonitorService : Service() {
                 notifyAgentEvent(kind, message)
             }
         }.launchIn(scope)
+
+        startQuotaWatch(repo)
     }
 
     private fun startForegroundMonitor() {
@@ -79,6 +83,14 @@ class AgentMonitorService : Service() {
         }
     }
 
+    /** PendingIntent that opens the app, optionally deep-linking to a tab. */
+    private fun openAppIntent(tab: String?, requestCode: Int): PendingIntent {
+        val intent = Intent(this, MainActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        if (tab != null) intent.putExtra(MainActivity.EXTRA_OPEN_TAB, tab)
+        return PendingIntent.getActivity(this, requestCode, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+    }
+
     private fun notifyAgentEvent(kind: String, message: String) {
         val (title, id) = when (kind) {
             "input_needed" -> "Antigravity needs your input" to ALERT_INPUT_ID
@@ -86,12 +98,8 @@ class AgentMonitorService : Service() {
             "error" -> "Antigravity hit an error" to ALERT_ERROR_ID
             else -> return
         }
-        val tap = PendingIntent.getActivity(
-            this, kind.hashCode(),
-            Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
-            PendingIntent.FLAG_IMMUTABLE,
-        )
-        val notif = NotificationCompat.Builder(this, CHANNEL_ALERTS)
+        // input_needed/complete deep-link to the Chat tab; tapping any opens the app.
+        val builder = NotificationCompat.Builder(this, CHANNEL_ALERTS)
             .setSmallIcon(R.drawable.ic_stat_agent)
             .setContentTitle(title)
             .setContentText(message.ifBlank { title })
@@ -99,11 +107,53 @@ class AgentMonitorService : Service() {
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(if (kind == "input_needed") NotificationCompat.CATEGORY_CALL else NotificationCompat.CATEGORY_STATUS)
             .setAutoCancel(true)
-            .setContentIntent(tap)
-            .build()
+            .setContentIntent(openAppIntent(if (kind == "error") null else "Chat", id))
+
+        if (kind == "input_needed") {
+            // Approve / Reject the pending step straight from the notification.
+            builder.addAction(0, "Approve", AgentActionReceiver.pendingIntent(this, AgentActionReceiver.ACTION_APPROVE))
+            builder.addAction(0, "Reject", AgentActionReceiver.pendingIntent(this, AgentActionReceiver.ACTION_REJECT))
+        }
 
         // POST_NOTIFICATIONS is requested by MainActivity; guard in case it's denied.
-        runCatching { NotificationManagerCompat.from(this).notify(id, notif) }
+        runCatching { NotificationManagerCompat.from(this).notify(id, builder.build()) }
+    }
+
+    /** Poll model quota periodically and alert when a provider crosses below 10%. */
+    private fun startQuotaWatch(repo: AppRepository) {
+        scope.launch {
+            val alerted = mutableSetOf<String>()
+            while (true) {
+                runCatching { repo.api.quota() }.getOrNull()?.let { q ->
+                    if (q.available) {
+                        q.models.forEach { m ->
+                            val key = m.name
+                            if (m.remainingPercent <= 10 && key !in alerted) {
+                                alerted.add(key)
+                                notifyLowQuota(m.name, m.remainingPercent)
+                            } else if (m.remainingPercent > 15) {
+                                alerted.remove(key) // recovered (with hysteresis) → can alert again
+                            }
+                        }
+                    }
+                }
+                kotlinx.coroutines.delay(10 * 60 * 1000L) // every 10 minutes
+            }
+        }
+    }
+
+    private fun notifyLowQuota(modelName: String, remaining: Int) {
+        val text = "$modelName is at $remaining% remaining"
+        val n = NotificationCompat.Builder(this, CHANNEL_ALERTS)
+            .setSmallIcon(R.drawable.ic_stat_agent)
+            .setContentTitle("Low model quota")
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setAutoCancel(true)
+            .setContentIntent(openAppIntent(null, ALERT_QUOTA_ID + modelName.hashCode()))
+            .build()
+        runCatching { NotificationManagerCompat.from(this).notify(ALERT_QUOTA_ID + modelName.hashCode(), n) }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
@@ -117,9 +167,10 @@ class AgentMonitorService : Service() {
         private const val CHANNEL_MONITOR = "agent_monitor"
         private const val CHANNEL_ALERTS = "agent_alerts"
         private const val MONITOR_NOTIF_ID = 4100
-        private const val ALERT_INPUT_ID = 4101
+        const val ALERT_INPUT_ID = 4101
         private const val ALERT_DONE_ID = 4102
         private const val ALERT_ERROR_ID = 4103
+        private const val ALERT_QUOTA_ID = 4200
 
         fun start(context: Context) {
             val intent = Intent(context, AgentMonitorService::class.java)

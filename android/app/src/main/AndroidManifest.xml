@@ -33,6 +33,10 @@
             android:name=".AgentMonitorService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+
+        <receiver
+            android:name=".AgentActionReceiver"
+            android:exported="false" />
     </application>
 
 </manifest>

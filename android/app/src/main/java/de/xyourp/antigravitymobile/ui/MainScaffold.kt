@@ -17,6 +17,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.CallSplit
 import androidx.compose.material.icons.filled.Cast
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
@@ -123,7 +125,20 @@ fun MainScaffold(repo: AppRepository, onOpenSettings: () -> Unit) {
     LaunchedEffect(Unit) {
         filesVm.messages.collect { snackbarHostState.showSnackbar(it) }
     }
+    LaunchedEffect(Unit) {
+        sessionVm.messages.collect { snackbarHostState.showSnackbar(it) }
+    }
     val filesContext = LocalContext.current
+
+    // Deep links (e.g. tapping a notification) request a tab switch.
+    LaunchedEffect(Unit) {
+        de.xyourp.antigravitymobile.NavRequests.requestedTab.collect { name ->
+            if (name != null) {
+                runCatching { Tab.valueOf(name) }.getOrNull()?.let { tab = it }
+                de.xyourp.antigravitymobile.NavRequests.requestedTab.value = null
+            }
+        }
+    }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -159,6 +174,8 @@ fun MainScaffold(repo: AppRepository, onOpenSettings: () -> Unit) {
                         hasPending = session.pendingApproval != null,
                         onRefreshChat = { chatVm.load(initial = false) },
                         onStop = { sessionVm.respondApproval("reject") },
+                        onPushClipboard = { sessionVm.pushClipboard(filesContext) },
+                        onPullClipboard = { sessionVm.pullClipboard(filesContext) },
                     )
                     IconButton(onClick = onOpenSettings) { Icon(Icons.Filled.Settings, "Settings") }
                 },
@@ -188,6 +205,7 @@ fun MainScaffold(repo: AppRepository, onOpenSettings: () -> Unit) {
                         onClearSelection = { filesVm.clearSelection() },
                         onDownloadItem = { filesVm.downloadItem(filesContext, it) },
                         onDownloadSelected = { filesVm.downloadSelected(filesContext) },
+                        onUpload = { filesVm.upload(filesContext, it) },
                     )
                 }
                 Tab.Git -> Column(Modifier.fillMaxSize()) {
@@ -383,7 +401,13 @@ private fun AgentStatusLabel(status: AgentStatus) {
 }
 
 @Composable
-private fun AgentControlsMenu(hasPending: Boolean, onRefreshChat: () -> Unit, onStop: () -> Unit) {
+private fun AgentControlsMenu(
+    hasPending: Boolean,
+    onRefreshChat: () -> Unit,
+    onStop: () -> Unit,
+    onPushClipboard: () -> Unit,
+    onPullClipboard: () -> Unit,
+) {
     var open by remember { mutableStateOf(false) }
     IconButton(onClick = { open = true }) { Icon(Icons.Filled.MoreVert, "Agent controls") }
     DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
@@ -391,6 +415,16 @@ private fun AgentControlsMenu(hasPending: Boolean, onRefreshChat: () -> Unit, on
             text = { Text("Refresh chat") },
             onClick = { open = false; onRefreshChat() },
             leadingIcon = { Icon(Icons.Filled.Refresh, null) },
+        )
+        DropdownMenuItem(
+            text = { Text("Send my clipboard to PC") },
+            onClick = { open = false; onPushClipboard() },
+            leadingIcon = { Icon(Icons.Filled.ContentPaste, null) },
+        )
+        DropdownMenuItem(
+            text = { Text("Copy PC clipboard") },
+            onClick = { open = false; onPullClipboard() },
+            leadingIcon = { Icon(Icons.Filled.ContentCopy, null) },
         )
         DropdownMenuItem(
             text = { Text("Stop current step") },

@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.DriveFolderUpload
+import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Divider
@@ -37,6 +38,9 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import android.net.Uri
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -58,12 +62,17 @@ fun FilesScreen(
     onClearSelection: () -> Unit = {},
     onDownloadItem: (FileItem) -> Unit = {},
     onDownloadSelected: () -> Unit = {},
+    onUpload: (List<Uri>) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     if (state.openFile != null || state.fileLoading || state.fileError != null) {
         FileViewer(state, onCloseFile, modifier)
         return
     }
+
+    val uploadLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris -> if (uris.isNotEmpty()) onUpload(uris) }
 
     Column(modifier.fillMaxSize()) {
         // Header switches to a selection action bar while picking items to download.
@@ -99,6 +108,10 @@ fun FilesScreen(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
                     )
+                    // Upload phone files into the current folder.
+                    IconButton(onClick = { uploadLauncher.launch(arrayOf("*/*")) }, enabled = state.path != null) {
+                        Icon(Icons.Filled.Upload, "Upload files to PC", tint = MaterialTheme.colorScheme.primary)
+                    }
                 }
             }
         }

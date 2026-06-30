@@ -224,6 +224,30 @@ class ApiClient(private val settingsProvider: () -> ConnectionSettings) {
         return downloadClient.newCall(req).execute()
     }
 
+    /** Upload one or more files from the phone into [dir] on the PC (multipart). */
+    suspend fun uploadFiles(dir: String, files: List<UploadPart>): UploadResponse = withContext(Dispatchers.IO) {
+        val mp = okhttp3.MultipartBody.Builder().setType(okhttp3.MultipartBody.FORM)
+        mp.addFormDataPart("dir", dir)
+        files.forEach { f ->
+            mp.addFormDataPart(
+                "files", f.name,
+                f.bytes.toRequestBody((f.mime ?: "application/octet-stream").toMediaType()),
+            )
+        }
+        val req = authedBuilder("/api/files/upload").post(mp.build()).build()
+        downloadClient.newCall(req).execute().use { resp ->
+            val body = resp.body?.string().orEmpty()
+            if (!resp.isSuccessful && body.isBlank()) throw IOException("HTTP ${resp.code}")
+            json.decodeFromString(body)
+        }
+    }
+
+    suspend fun getClipboard(): ClipboardResponse =
+        json.decodeFromString(getRaw("/api/clipboard"))
+
+    suspend fun setClipboard(text: String): ActionResult =
+        json.decodeFromString(postRaw("/api/clipboard", bodyOf("text", text)))
+
     /** Open a stream for a ZIP of the given files/folders. */
     fun openZipDownload(paths: List<String>): okhttp3.Response {
         val body = buildJsonObject {

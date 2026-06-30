@@ -211,6 +211,13 @@ const upload = multer({
     }
 });
 
+// Generic uploads (phone → PC): any file type, kept in memory then written into
+// the workspace by the /api/files/upload handler.
+const uploadAny = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 500 * 1024 * 1024 }, // 500MB
+});
+
 // Workspace path (will be set dynamically via IDE detection or default to parent folder)
 let workspacePath = join(PROJECT_ROOT, '..');
 Supervisor.setProjectRoot(workspacePath);
@@ -2352,6 +2359,64 @@ app.get('/api/files/download', (req, res) => {
             return res.status(400).json({ error: 'Path is a folder — use /api/files/download-zip' });
         }
         res.download(resolvedPath, basename(resolvedPath));
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Upload files from the phone into the workspace (any type, multiple at once).
+app.post('/api/files/upload', uploadAny.array('files'), (req, res) => {
+    try {
+        const files = req.files || [];
+        if (files.length === 0) return res.status(400).json({ error: 'No files uploaded' });
+
+        const targetDir = resolve(req.body?.dir || workspacePath);
+        const workspaceRoot = resolve(workspacePath);
+        if (!pathStartsWith(targetDir, workspaceRoot)) {
+            return res.status(403).json({ error: 'Access denied - outside workspace' });
+        }
+        if (!existsSync(targetDir) || !statSync(targetDir).isDirectory()) {
+            return res.status(400).json({ error: 'Target folder does not exist' });
+        }
+
+        const saved = [];
+        for (const f of files) {
+            // basename() strips any path components in the supplied name (no traversal).
+            const name = basename(f.originalname || 'upload.bin');
+            const dest = join(targetDir, name);
+            if (!pathStartsWith(resolve(dest), workspaceRoot)) continue;
+            writeFileSync(dest, f.buffer);
+            saved.push(name);
+        }
+        res.json({ success: true, saved, dir: targetDir });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Clipboard sync (phone <-> PC) via PowerShell Get/Set-Clipboard.
+app.get('/api/clipboard', (req, res) => {
+    try {
+        const child = spawn('powershell', ['-NoProfile', '-NonInteractive', '-Command', 'Get-Clipboard -Raw']);
+        let out = '';
+        child.stdout.on('data', d => { out += d.toString(); });
+        child.on('close', () => res.json({ text: out.replace(/\r\n$/, '') }));
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/clipboard', (req, res) => {
+    try {
+        const text = String(req.body?.text ?? '');
+        // Pass the text via env to avoid any quoting/escaping issues.
+        const child = spawn('powershell', ['-NoProfile', '-NonInteractive', '-Command', 'Set-Clipboard -Value $env:AGCLIP'], {
+            env: { ...process.env, AGCLIP: text },
+        });
+        child.on('close', (code) => {
+            if (code === 0) res.json({ success: true });
+            else res.status(500).json({ success: false, error: `exit ${code}` });
+        });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }

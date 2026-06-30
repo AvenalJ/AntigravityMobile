@@ -296,3 +296,16 @@ data class QuotaResponse(
     val error: String? = null,
     val models: List<QuotaModelInfo> = emptyList(),
 )
+
+/** One file to upload (in-memory). Not serialized — sent as multipart. */
+class UploadPart(val name: String, val mime: String?, val bytes: ByteArray)
+
+@Serializable
+data class ClipboardResponse(val text: String = "", val error: String? = null)
+
+@Serializable
+data class UploadResponse(
+    val success: Boolean = false,
+    val saved: List<String> = emptyList(),
+    val error: String? = null,
+)

@@ -1,5 +1,8 @@
 package de.xyourp.antigravitymobile.ui.session
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import de.xyourp.antigravitymobile.data.AppRepository
@@ -8,8 +11,11 @@ import de.xyourp.antigravitymobile.net.CdpSource
 import de.xyourp.antigravitymobile.net.QuotaResponse
 import de.xyourp.antigravitymobile.net.Repo
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
@@ -48,6 +54,10 @@ class SessionViewModel(private val repo: AppRepository) : ViewModel() {
 
     private val _state = MutableStateFlow(SessionState())
     val state: StateFlow<SessionState> = _state.asStateFlow()
+
+    /** One-shot user-facing messages (clipboard sync etc.) shown as snackbars. */
+    private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 4)
+    val messages: SharedFlow<String> = _messages.asSharedFlow()
 
     @Volatile private var lastChatActivityMs: Long = 0L
     @Volatile private var screenActive: Boolean = false
@@ -94,6 +104,28 @@ class SessionViewModel(private val repo: AppRepository) : ViewModel() {
                 "source_changed" -> { loadSources(); loadModels(); loadWorkspace() }
             }
         }.launchIn(viewModelScope)
+    }
+
+    /** Send the phone's clipboard text to the PC clipboard. */
+    fun pushClipboard(context: Context) {
+        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+        val text = cm?.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString()
+        if (text.isNullOrEmpty()) { _messages.tryEmit("Phone clipboard is empty"); return }
+        viewModelScope.launch {
+            val ok = runCatching { repo.api.setClipboard(text) }.getOrNull()?.success == true
+            _messages.tryEmit(if (ok) "Sent to PC clipboard" else "Couldn't reach the PC")
+        }
+    }
+
+    /** Copy the PC's clipboard text into the phone's clipboard. */
+    fun pullClipboard(context: Context) {
+        viewModelScope.launch {
+            val text = runCatching { repo.api.getClipboard() }.getOrNull()?.text
+            if (text.isNullOrEmpty()) { _messages.tryEmit("PC clipboard is empty"); return@launch }
+            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+            cm?.setPrimaryClip(ClipData.newPlainText("Antigravity", text))
+            _messages.tryEmit("Copied PC clipboard to phone")
+        }
     }
 
     /** Fetch model usage/quota (for the Usage sheet). */
