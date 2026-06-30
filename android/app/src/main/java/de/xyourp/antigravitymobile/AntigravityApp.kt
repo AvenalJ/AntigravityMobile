@@ -12,5 +12,8 @@ class AntigravityApp : Application() {
     override fun onCreate() {
         super.onCreate()
         repository = AppRepository(SettingsStore(this))
+        // Watch for agent events / low quota and post alert notifications.
+        // No foreground service, so there's no persistent "watching" notification.
+        AgentMonitor.start(this)
     }
 }

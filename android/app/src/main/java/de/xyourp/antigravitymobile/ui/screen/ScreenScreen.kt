@@ -195,7 +195,8 @@ fun ScreenScreen(
                                     val dy = event.changes.map { (it.position.y - it.previousPosition.y).toDouble() }.average().toFloat()
                                     scrollAccum += dy
                                     if (kotlin.math.abs(scrollAccum) >= 40f) {
-                                        onScroll(scrollAccum)
+                                        // Inverted: swipe down scrolls content up (natural).
+                                        onScroll(-scrollAccum)
                                         scrollAccum = 0f
                                     }
                                     event.changes.forEach { it.consume() }

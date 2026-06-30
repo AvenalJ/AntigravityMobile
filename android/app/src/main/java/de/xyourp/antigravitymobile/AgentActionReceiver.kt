@@ -26,7 +26,7 @@ class AgentActionReceiver : BroadcastReceiver() {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 runCatching { repo.api.respondApproval(action) }
-                NotificationManagerCompat.from(context).cancel(AgentMonitorService.ALERT_INPUT_ID)
+                NotificationManagerCompat.from(context).cancel(AgentMonitor.ALERT_INPUT_ID)
             } finally {
                 pending.finish()
             }

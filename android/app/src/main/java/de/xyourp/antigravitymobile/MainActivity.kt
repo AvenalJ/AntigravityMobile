@@ -37,7 +37,6 @@ class MainActivity : ComponentActivity() {
         ) {
             requestNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
-        AgentMonitorService.start(this)
 
         setContent {
             AntigravityTheme {
