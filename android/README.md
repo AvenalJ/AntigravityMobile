@@ -1,6 +1,6 @@
 # Antigravity Mobile — Android companion app
 
-A Kotlin + Jetpack Compose (Material 3) Android app that is a mobile companion for a
+A Kotlin + Jetpack Compose (Material 3, with **Material You dynamic colors** on Android 12+ — the app follows your wallpaper-derived system palette) Android app that is a mobile companion for a
 locally-running **Antigravity IDE** instance, reached over a private **Tailscale**
 network. It talks to the Node bridge in this repo (`../src/http-server.mjs`).
 

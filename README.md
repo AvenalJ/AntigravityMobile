@@ -1,203 +1,185 @@
 # Antigravity Mobile
 
-Mobile dashboard and admin panel for [Antigravity IDE](https://antigravity.google). Monitor conversations, manage your agent, and get notified — all from your phone.
+Mobile dashboard, native Android app, and full remote control for [Antigravity IDE](https://antigravity.google). Monitor conversations, drive your agent, and see your whole desktop — all from your phone.
+
+> Fork of [AvenalJ/AntigravityMobile](https://github.com/AvenalJ/AntigravityMobile) extended with a native Android companion app, whole-desktop remote control, one-time device pairing, and an interactive setup wizard.
 
 <p align="center">
   <img src="screenshots/screenshot.png" width="620" alt="Admin Panel Landscape" style="border:1px solid #30363d;border-radius:8px;" />
 </p>
 
-> **📱 Native Android companion app** — A Kotlin + Jetpack Compose app that talks to
-> this bridge over a private **Tailscale** network lives in [`android/`](android/).
-> See [`android/README.md`](android/README.md) to build and sideload the APK.
->
-> **Port note:** the bridge now defaults to **port 5000** (HTTP + WebSocket on one
-> port), configurable via `data/config.json` → `server.port`. A `folderOpen` task in
-> [`.vscode/tasks.json`](.vscode/tasks.json) auto-starts it when the workspace opens
-> in Antigravity IDE. The screenshot timeline is also exposed to the phone via the new
-> Tailscale-reachable routes `GET /api/screenshots` and `GET /api/screenshots/:filename`.
-
 ## Features
 
-**Mobile Dashboard** — Real-time chat streaming, file browser with syntax highlighting, model quota monitor, and quick commands. Available in full and lite mode for low-bandwidth use.
+**📱 Native Android companion app** ([`android/`](android/)) — Kotlin + Jetpack Compose (Material 3) app that talks to the bridge over a private **Tailscale** network: live chat mirror, file browser, Git working-tree view (stage/discard/commit), model quota monitor, screenshot timeline, and a full remote-control Screen tab. Supports **Material You dynamic colors** — on Android 12+ the app automatically picks up your wallpaper-derived system palette. See [`android/README.md`](android/README.md) to build and sideload the APK.
 
-**Admin Panel** (`/admin`) — Localhost-only control panel with:
-- Telegram bot notifications (completion, input needed, errors)
-- Auto-accept for command prompts (Run, Allow, Continue, etc.)
+**🖥️ Full-desktop remote control** ([`rust-helper/`](rust-helper/)) — a small Rust helper (`desktop-helper.exe`) captures the entire desktop (JPEG or H.264) and injects native mouse/keyboard input, RustDesk-style: tap, double-tap, hold-drag, three-finger scroll, sticky modifiers. It also supervises the Node bridge, so one double-click boots the whole stack.
+
+**🧙 Setup wizard** (`/setup`) — interactive first-run guide with live checks that *does* the work: set the Antigravity path, launch with CDP, build and start the desktop helper (streamed build log), Tailscale guidance, and phone pairing with a live paired indicator.
+
+**🔐 Device pairing** — a phone enters the PC's pairing code once and receives a long-lived token; all input injection requires a paired device. Optional PIN auth with rate limiting on top.
+
+**Mobile Dashboard** (browser fallback) — real-time chat streaming, file browser with syntax highlighting, quota monitor, and quick commands. Full and lite mode for low-bandwidth use.
+
+**Admin Panel** (`/admin`, localhost-only):
+- Setup wizard, auto-accept for command prompts (Run, Allow, Continue, …)
 - Quick commands — saved prompts injected directly into the agent
 - Screenshot timeline with auto-capture
 - Theme and layout customization for the mobile dashboard
-- Multi-device CDP switching
+- Multi-device CDP switching, session event logs
 - Remote access via Cloudflare quick tunnels
-- Session event logs
+- Telegram bot notifications *(optional, **off by default** — the code ships but nothing runs unless you enable it in the admin panel)*
 
-**Remote Access** — Secure access from anywhere using Cloudflare quick tunnels. No account required — generates a random `.trycloudflare.com` URL with QR code. Auto-start option available.
+**Error Detection** — monitors the chat stream and modal dialogs for errors like "Agent terminated" and "Model quota reached"; can alert via Telegram if enabled.
 
-**Error Detection** — Monitors both the chat stream and full-page modal dialogs for errors like "Agent terminated" and "Model quota reached". Sends Telegram alerts on detection.
-
-**Security** — Optional PIN authentication with IP-based rate limiting (5 attempts, 15-min lockout), localhost-only admin endpoints, encrypted tunnels via Cloudflare HTTPS. No data sent externally (Telegram API excluded).
+**Security** — pairing-gated input, optional PIN with IP-based rate limiting (5 attempts, 15-min lockout), localhost-only admin endpoints. No data leaves your machines (Tailscale is peer-to-peer; Telegram API only if you turn it on).
 
 ## Quick Start
 
-**Requirements:** Node.js 18+, Antigravity IDE installed. Optional: [`cloudflared`](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) for remote access (the launch script offers to install it automatically).
+**Requirements:** Node.js 18+, Antigravity installed. Optional: Rust toolchain (for the desktop helper), [Tailscale](https://tailscale.com) (recommended for phone access), `cloudflared` for public tunnels.
 
 ```bash
-git clone https://github.com/AvenalJ/AntigravityMobile.git
+git clone https://github.com/Xpl4iN/AntigravityMobile.git
 cd AntigravityMobile
+npm install
+node src/http-server.mjs
 ```
 
-**Windows:** Double-click `Start-Antigravity-Mobile.bat`
-**macOS/Linux:** `./Start-Antigravity-Mobile.sh`
+Then open **`http://localhost:5000/setup`** — the wizard walks you through (and automates) the rest: launching Antigravity with CDP, building/starting the desktop helper, Tailscale, and pairing your phone.
 
-The admin panel opens automatically at `http://localhost:3001/admin`.
-Access the mobile dashboard from your phone at `http://YOUR_PC_IP:3001`.
+Day-to-day, once the helper is built: just double-click `rust-helper/target/release/desktop-helper.exe` — it starts capture/input **and** the bridge, and keeps the bridge alive.
 
-Dependencies install automatically on first run. The script handles launching Antigravity with CDP enabled.
+- Admin panel: `http://localhost:5000/admin`
+- Phone (Tailscale): `http://<your-tailscale-ip>:5000`
 
-To stop: run `Stop-Antigravity-Mobile.bat` (Windows) or `./Stop-Antigravity-Mobile.sh`.
+The bridge serves HTTP **and** WebSocket on one port (default **5000**, configurable via `data/config.json` → `server.port`). CDP defaults to port **9333**.
 
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│  Your Machine                                             │
-│                                                           │
-│  Antigravity IDE ◄──── CDP ────► Antigravity Mobile       │
-│                                  Server (:3001)           │
-│                                    │           │          │
-│                              WebSocket       HTTPS        │
-│                                    │           │          │
-│                               Phone 📱    Telegram 🤖    │
-└──────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────┐
+│  Your PC                                                        │
+│                                                                 │
+│  Antigravity ◄── CDP (9333) ──► Node bridge (:5000) ◄── WS ──►  │
+│   (2.0 app / IDE)                  │            desktop-helper  │
+│                                    │            (capture+input) │
+│                       HTTP + WebSocket (one port)               │
+│                                    │                            │
+└────────────────────────────────────┼────────────────────────────┘
+                                Tailscale
+                                     │
+                               Phone 📱 (Android app / browser)
 ```
 
 | Component | Description |
 |-----------|-------------|
-| `src/http-server.mjs` | Express server, API endpoints, WebSocket bridge |
+| `src/http-server.mjs` | Express server, API endpoints, WebSocket bridge, setup wizard API |
 | `src/chat-stream.mjs` | CDP-based chat capture, auto-accept, notification triggers |
 | `src/cdp-client.mjs` | Chrome DevTools Protocol client (screenshots, input injection, DOM queries) |
-| `src/supervisor-service.mjs` | AI supervisor — autonomous monitoring, error recovery, task queue, assist chat |
-| `src/ollama-client.mjs` | Thin wrapper around the Ollama REST API |
-| `src/telegram-bot.mjs` | Telegram Bot API — sends alerts for agent events |
-| `src/tunnel.mjs` | Cloudflare quick tunnel management (start/stop/status) |
-| `src/config.mjs` | Persistent JSON config store |
+| `src/helper-bridge.mjs` | Localhost link to the desktop helper (frames in, input commands out) |
+| `src/pairing-service.mjs` | One-time device pairing: persistent code, per-device tokens |
+| `src/git-service.mjs` | Git working-tree API for the phone's Git tab (no push by design) |
+| `src/supervisor-service.mjs` | AI supervisor — autonomous monitoring, error recovery, task queue (Ollama) |
+| `src/telegram-bot.mjs` | Optional Telegram alerts (inactive unless enabled) |
+| `src/tunnel.mjs` | Cloudflare quick tunnel management |
+| `src/config.mjs` | Persistent JSON config store (`data/config.json`) |
 | `src/quota-service.mjs` | Language server quota polling (Windows only) |
-| `src/launcher.mjs` | Orchestrates startup: server, CDP, Antigravity launch |
+| `src/launcher.mjs` | Startup orchestrator (server, CDP, Antigravity launch) |
+| `rust-helper/` | `desktop-helper` — desktop capture (scrap), input injection (enigo), H.264, bridge supervisor |
+| `android/` | Native Android companion app (Kotlin, Jetpack Compose, Material 3 + dynamic colors) |
 
 ## Configuration
 
 ### Port
 
-Default is `3001`. Change in `launcher.mjs`:
-```javascript
-const HTTP_PORT = 3001;
-```
+Default is `5000`. Change `server.port` in `data/config.json` (created on first run).
+
+### Setup wizard
+
+`http://localhost:5000/setup` — re-run any time. Saves a custom Antigravity path to the config if auto-detection fails (`ANTIGRAVITY_PATH` env var also works).
 
 ### PIN Authentication
 
-The start script prompts for an optional 4–6 digit PIN. You can also set it via environment variable:
+Optional 4–6 digit PIN on top of pairing:
 
 ```bash
-MOBILE_PIN=1234 node http-server.mjs
+MOBILE_PIN=1234 node src/http-server.mjs
 ```
 
-The admin panel shows whether authentication is currently active. To disable, click **Clear PIN** in Server settings.
+The admin panel shows whether authentication is active; **Clear PIN** disables it.
 
-### Remote Access
+### Remote Access (Cloudflare tunnel)
 
-1. Install `cloudflared` (the launch script offers to do this automatically)
-2. Go to Admin Panel → Remote Access
-3. Click **Start Tunnel** — a random public URL and QR code appear
-4. PIN authentication is required before the tunnel can be started
-5. Enable **Auto-start** to launch the tunnel on every server boot
+1. Install `cloudflared`
+2. Admin Panel → Remote Access → **Start Tunnel** — a random public URL + QR code appear
+3. PIN authentication is required before the tunnel can start
 
-### Telegram Bot
+For phone access, prefer Tailscale — private, encrypted, and no public exposure.
 
-1. Create a bot via [@BotFather](https://t.me/BotFather)
-2. Get your chat ID from [@userinfobot](https://t.me/userinfobot)
-3. Enter both in Admin Panel → Telegram tab → Save & Connect
-4. Toggle notification types individually
+### Telegram Bot (optional, off by default)
+
+The integration is dormant until configured — safe to ignore entirely.
+
+1. Create a bot via [@BotFather](https://t.me/BotFather), get your chat ID from [@userinfobot](https://t.me/userinfobot)
+2. Enter both in Admin Panel → Telegram tab → Save & Connect
+3. Toggle notification types individually
 
 ### CDP
 
-The start script launches Antigravity with `--remote-debugging-port=9222` automatically. If running Antigravity manually:
+The setup wizard (or the helper/scripts) launches Antigravity with `--remote-debugging-port=9333`. Manually:
 
 ```bash
-antigravity --remote-debugging-port=9222
+Antigravity.exe --remote-debugging-port=9333
 ```
+
+The bridge also auto-discovers a running instance via its `DevToolsActivePort` file.
 
 ## Project Structure
 
 ```
+├── android/                    # Native Android companion app (Compose, Material You)
+├── rust-helper/                # desktop-helper: capture + input + supervisor (Rust)
 ├── public/
-│   ├── index.html              # Mobile dashboard
+│   ├── index.html              # Mobile dashboard (browser)
 │   ├── minimal.html            # Lite mode (chat only)
 │   ├── admin.html              # Admin panel
-│   ├── manifest.json           # PWA manifest
-│   ├── sw.js                   # Service worker
-│   ├── css/
-│   │   ├── variables.css       # CSS custom properties & theme variables
-│   │   ├── layout.css          # Page layout, topbar, panels
-│   │   ├── components.css      # Buttons, cards, forms, modals
-│   │   ├── themes.css          # Theme overrides (dark, light, pastel, rainbow, slate)
-│   │   ├── chat.css            # Chat message styling
-│   │   ├── files.css           # File browser styling
-│   │   ├── settings.css        # Settings panel styling
-│   │   └── assist.css          # Supervisor assist tab styling
-│   └── js/
-│       ├── app.js              # App initialization
-│       ├── api.js              # API client helpers
-│       ├── websocket.js        # WebSocket connection manager
-│       ├── navigation.js       # Tab navigation & routing
-│       ├── chat.js             # Chat rendering & history
-│       ├── chat-live.js        # Live chat streaming
-│       ├── files.js            # File browser & syntax highlighting
-│       ├── settings.js         # Settings panel logic
-│       ├── theme.js            # Theme switching
-│       ├── icons.js            # SVG icon helper
-│       ├── assist.js           # Supervisor assist chat
-│       └── task-queue.js       # Task queue UI
-├── src/
-│   ├── http-server.mjs         # API server & WebSocket bridge
-│   ├── chat-stream.mjs         # Chat streaming + auto-accept + notifications
-│   ├── cdp-client.mjs          # CDP client
-│   ├── supervisor-service.mjs  # AI supervisor (Ollama-powered)
-│   ├── ollama-client.mjs       # Ollama REST API wrapper
-│   ├── telegram-bot.mjs        # Telegram integration
-│   ├── tunnel.mjs              # Cloudflare tunnel manager
-│   ├── config.mjs              # Config store
-│   ├── quota-service.mjs       # Quota monitor
-│   └── launcher.mjs            # Startup orchestrator
+│   ├── setup.html              # Interactive setup wizard
+│   └── css/, js/               # Dashboard styling & logic
+├── src/                        # Node bridge (see component table above)
 ├── scripts/
-│   ├── Start-Antigravity-Mobile.bat / .sh
-│   └── Stop-Antigravity-Mobile.bat / .sh
+│   ├── start-bridge.bat        # Bridge only (used by the helper's supervisor)
+│   ├── start-antigravity-2.0-debug.bat   # Launch Antigravity 2.0 with CDP
+│   └── Start/Stop-Antigravity-Mobile.*   # Legacy all-in-one launchers
 ├── data/                       # Runtime config & session data (gitignored)
-├── screenshots/                # App screenshots for README
-└── uploads/                    # User uploads (screenshots, etc.)
+└── screenshots/                # App screenshots for README
 ```
 
 ## Troubleshooting
 
 | Problem | Fix |
 |---------|-----|
-| CDP Disconnected | Start Antigravity via the launch script, or add `--remote-debugging-port=9222` manually |
-| Can't connect from phone | Same Wi-Fi network? Try PC's IP instead of `localhost`. Check firewall for port 3001 |
-| Telegram silent | Verify token/chat ID, use the Test button, check that notification toggles are on |
-| Auto-accept not clicking | Ensure CDP is connected (green indicator in admin). Check session logs for events |
+| CDP Disconnected | Launch via the setup wizard, the debug script, or add `--remote-debugging-port=9333` manually |
+| Can't connect from phone | Tailscale up on both devices? Try the Tailscale IP with port 5000. Check the firewall |
+| Screen tab black / no input | Is `desktop-helper.exe` running? The wizard's helper step shows live status |
+| Phone can't control the PC | Pair it first: Settings → Pair in the app, code from the wizard or bridge console |
+| Auto-accept not clicking | Ensure CDP is connected (green indicator in admin). Check session logs |
 | Quota not loading | Antigravity must be running and logged in. Windows only |
-| PIN forgotten | Click **Clear PIN** in Admin → Server, or restart without PIN — auth resets each launch |
-| Remote tunnel won't start | Ensure `cloudflared` is installed and PIN auth is enabled |
-| Tunnel URL not showing | Check server console for errors. The URL may take a few seconds to appear |
+| PIN forgotten | Click **Clear PIN** in Admin → Server |
+| Telegram silent | It's off by default. Verify token/chat ID, use the Test button, check toggles |
+| Tunnel won't start | Ensure `cloudflared` is installed and PIN auth is enabled |
 
 For debug output, run the server directly:
 ```bash
-node http-server.mjs 2>&1 | tee server.log
+node src/http-server.mjs 2>&1 | tee server.log
 ```
 
 ## License
 
 MIT — see [LICENSE](LICENSE).
+Original work © AvenalJ; Android companion app, desktop helper, and related modifications © XyourP Websolution UG (haftungsbeschränkt).
 
 ## Acknowledgments
 
+- Original project by [AvenalJ](https://github.com/AvenalJ/AntigravityMobile)
+- Desktop capture/input built on the MIT-licensed [`scrap`](https://crates.io/crates/scrap) and [`enigo`](https://crates.io/crates/enigo) crates (as used by RustDesk)
 - Inspired by [Antigravity-Shit-Chat](https://github.com/gherghett/Antigravity-Shit-Chat) by gherghett
 - Quota monitoring inspired by [Antigravity Cockpit](https://marketplace.visualstudio.com/items?itemName=jlcodes.antigravity-cockpit)
