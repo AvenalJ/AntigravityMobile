@@ -60,6 +60,17 @@ class LiveSocket(private val scope: CoroutineScope) {
     private val _connected = MutableStateFlow(false)
     val connected: StateFlow<Boolean> = _connected.asStateFlow()
 
+    /**
+     * The bridge pushes the desktop capture stream (~20fps JPEG/H.264) to every
+     * connected client unconditionally — it has no concept of "nobody's watching".
+     * Decoding each frame is the expensive part (full-res JPEG decode on every
+     * message), so gate it here on whether the Screen tab is actually visible
+     * *and* the app is foregrounded. Otherwise the phone burns CPU decoding a
+     * video stream nobody is looking at, even while backgrounded.
+     */
+    @Volatile var screenWatching: Boolean = false
+    @Volatile var appForeground: Boolean = true
+
     private var webSocket: WebSocket? = null
     private var loopJob: Job? = null
     private var current: ConnectionSettings? = null
@@ -115,6 +126,9 @@ class LiveSocket(private val scope: CoroutineScope) {
             override fun onMessage(ws: WebSocket, bytes: ByteString) {
                 val b = bytes.toByteArray()
                 if (b.isEmpty()) return
+                // Cheap tag check happens regardless, but skip the actual decode
+                // (the expensive part) unless someone is actually watching.
+                if (!screenWatching || !appForeground) return
                 when (b[0].toInt() and 0xFF) {
                     0x4A -> { // 'J' tagged JPEG
                         BitmapFactory.decodeByteArray(b, 1, b.size - 1)?.let { _frames.tryEmit(it) }

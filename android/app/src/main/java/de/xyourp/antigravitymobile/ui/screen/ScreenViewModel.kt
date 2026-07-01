@@ -60,6 +60,7 @@ class ScreenViewModel(private val repo: AppRepository) : ViewModel() {
 
     fun setActive(b: Boolean) {
         _active.value = b
+        updateWatching()
     }
 
     fun setMouseMode(b: Boolean) {
@@ -68,6 +69,14 @@ class ScreenViewModel(private val repo: AppRepository) : ViewModel() {
 
     fun toggleAuto() {
         _auto.value = !_auto.value
+        updateWatching()
+    }
+
+    /** Tells the socket whether to bother decoding incoming frames at all —
+     * the bridge streams to every connected client regardless, so this is the
+     * only place frame decoding can be cheaply skipped. */
+    private fun updateWatching() {
+        repo.socket.screenWatching = _active.value && _auto.value
     }
 
     fun refreshNow() {

@@ -38,10 +38,19 @@ fun AppRoot(repo: AppRepository) {
         var wasBackgrounded = false
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_STOP -> wasBackgrounded = true
-                Lifecycle.Event.ON_START -> if (wasBackgrounded) {
-                    wasBackgrounded = false
-                    repo.socket.reconnectNow()
+                Lifecycle.Event.ON_STOP -> {
+                    wasBackgrounded = true
+                    // Stop decoding the screen stream while backgrounded — the
+                    // bridge keeps pushing frames to every connected client
+                    // regardless, so this is what actually stops the CPU burn.
+                    repo.socket.appForeground = false
+                }
+                Lifecycle.Event.ON_START -> {
+                    repo.socket.appForeground = true
+                    if (wasBackgrounded) {
+                        wasBackgrounded = false
+                        repo.socket.reconnectNow()
+                    }
                 }
                 else -> {}
             }
