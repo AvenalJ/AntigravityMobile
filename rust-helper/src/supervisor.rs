@@ -14,7 +14,7 @@ use tokio::time::sleep;
 /// Locate `scripts/start-bridge.bat`, honouring an override env var, else
 /// walking up from the executable's directory to find the repo root.
 fn find_bridge_bat() -> Option<PathBuf> {
-    if let Ok(p) = std::env::var("RUSTDESK_HELPER_BRIDGE") {
+    if let Ok(p) = std::env::var("HELPER_BRIDGE").or_else(|_| std::env::var("RUSTDESK_HELPER_BRIDGE")) {
         let pb = PathBuf::from(p);
         if pb.is_file() {
             return Some(pb);
@@ -37,7 +37,7 @@ pub async fn supervise_bridge() {
         Some(b) => b,
         None => {
             log::error!(
-                "start-bridge.bat not found (set RUSTDESK_HELPER_BRIDGE to its full path). \
+                "start-bridge.bat not found (set HELPER_BRIDGE to its full path). \
                  Node bridge will NOT be auto-started."
             );
             return;

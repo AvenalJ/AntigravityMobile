@@ -1,4 +1,4 @@
-// rustdesk-helper — full-desktop capture + input helper for Antigravity Mobile.
+// desktop-helper — full-desktop capture + input helper for Antigravity Mobile.
 //
 // Role (per locked design):
 //   - Top-level launcher: starts scripts/start-bridge.bat and supervises Node.
@@ -19,7 +19,8 @@ use std::net::SocketAddr;
 
 use server::Hub;
 
-/// Localhost port the helper serves on. Override via RUSTDESK_HELPER_PORT.
+/// Localhost port the helper serves on. Override via HELPER_PORT
+/// (legacy RUSTDESK_HELPER_PORT still honoured).
 /// 47632 avoids 9333 (CDP), 5000 (bridge), 9222 (Edge).
 const DEFAULT_PORT: u16 = 47632;
 
@@ -27,13 +28,14 @@ const DEFAULT_PORT: u16 = 47632;
 async fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
-    let port: u16 = std::env::var("RUSTDESK_HELPER_PORT")
+    let port: u16 = std::env::var("HELPER_PORT")
+        .or_else(|_| std::env::var("RUSTDESK_HELPER_PORT"))
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(DEFAULT_PORT);
     let addr: SocketAddr = ([127, 0, 0, 1], port).into();
 
-    log::info!("rustdesk-helper starting (phase 4)");
+    log::info!("desktop-helper starting (phase 4)");
 
     let mut hub = Hub::new();
 

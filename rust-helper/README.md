@@ -1,10 +1,10 @@
-# rustdesk-helper
+# desktop-helper (rust-helper)
 
 Full-desktop capture + input helper for Antigravity Mobile. Replaces the
 CDP-window screencast with whole-desktop remote control (RustDesk-grade), built
 on RustDesk's own crates (`scrap` for capture, `enigo` for input).
 
-It is the **top-level launcher**: double-click `rustdesk-helper.exe` and it
+It is the **top-level launcher**: double-click `desktop-helper.exe` and it
 (1) starts capture/input, (2) launches `scripts/start-bridge.bat` and supervises
 Node (relaunch on exit), (3) serves a localhost WebSocket that Node relays to the
 phone. One double-click boots the whole stack — no "did I start the bridge?".
@@ -27,12 +27,12 @@ $env:Path = "$env:USERPROFILE\.cargo\bin;$wl;$env:Path"
 cargo build --release
 ```
 
-The release exe lands at `target/release/rustdesk-helper.exe`.
+The release exe lands at `target/release/desktop-helper.exe`.
 
 ## Runtime env vars
 
-- `RUSTDESK_HELPER_PORT` — localhost WS port (default `47632`).
-- `RUSTDESK_HELPER_BRIDGE` — full path to `start-bridge.bat` (default: found by
+- `HELPER_PORT` — localhost WS port (default `47632`).
+- `HELPER_BRIDGE` — full path to `start-bridge.bat` (default: found by
   walking up from the exe).
 - `RUST_LOG` — log level (default `info`).
 

@@ -1,11 +1,11 @@
 [package]
-name = "rustdesk-helper"
+name = "desktop-helper"
 version = "0.1.0"
 edition = "2021"
 description = "Full-desktop capture + input helper for Antigravity Mobile (scrap + enigo)"
 
 [[bin]]
-name = "rustdesk-helper"
+name = "desktop-helper"
 path = "src/main.rs"
 
 [dependencies]

@@ -223,6 +223,10 @@ fun ScreenScreen(
                         val slop = viewConfiguration.touchSlop
                         val longPressMs = viewConfiguration.longPressTimeoutMillis
                         val doubleTapMs = viewConfiguration.doubleTapTimeoutMillis
+                        // Two quick taps only count as a double-tap (or hold-drag)
+                        // when the second lands near the first — otherwise they're
+                        // two independent single taps (e.g. tapping two buttons).
+                        val doubleTapRadius = 48.dp.toPx()
 
                         fun send(action: String, p: Offset, button: String) {
                             normalize(p, containerSize, imgAspect, scale, offset)?.let {
@@ -249,8 +253,12 @@ fun ScreenScreen(
                         }
 
                         awaitPointerEventScope {
+                            // A second press that landed too far from a tap to be a
+                            // double-tap is carried over and treated as a fresh press.
+                            var carried: PointerInputChange? = null
                             while (true) {
-                                val down = awaitFirstDown(requireUnconsumed = false)
+                                val down = carried ?: awaitFirstDown(requireUnconsumed = false)
+                                carried = null
                                 val id = down.id
                                 val startPos = down.position
                                 var pos = startPos
@@ -307,6 +315,16 @@ fun ScreenScreen(
                                 if (second == null) {
                                     // SINGLE TAP → left click.
                                     click(startPos)
+                                    continue
+                                }
+                                if ((second.position - startPos).getDistance() > doubleTapRadius) {
+                                    // Second press is elsewhere on the screen: two
+                                    // separate single taps, NOT a double-tap. Click the
+                                    // first and reprocess the second as a fresh press —
+                                    // this used to become a hold-drag that left the
+                                    // remote button pressed.
+                                    click(startPos)
+                                    carried = second
                                     continue
                                 }
 

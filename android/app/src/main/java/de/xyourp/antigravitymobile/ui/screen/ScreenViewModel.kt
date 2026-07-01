@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import de.xyourp.antigravitymobile.data.AppRepository
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -84,11 +85,38 @@ class ScreenViewModel(private val repo: AppRepository) : ViewModel() {
     }
 
     fun click(nx: Float, ny: Float) = input { repo.api.screenClick(nx.toDouble(), ny.toDouble()) }
-    
-    fun mouse(type: String, nx: Float, ny: Float, button: String = "none", dx: Float? = null, dy: Float? = null) {
+
+    private data class MouseEvent(
+        val type: String, val nx: Double, val ny: Double,
+        val button: String, val dx: Double?, val dy: Double?,
+    )
+
+    /**
+     * All mouse events go through one queue drained by a single coroutine, so
+     * mousePressed/mouseReleased can never arrive at the PC out of order (each
+     * event used to be its own parallel HTTP call — a release overtaking its
+     * press left the remote button stuck down). Button presses/releases are
+     * retried; a release that still fails is surfaced instead of swallowed.
+     */
+    private val mouseQueue = Channel<MouseEvent>(Channel.UNLIMITED)
+
+    init {
         viewModelScope.launch {
-            runCatching { repo.api.screenMouse(type, nx.toDouble(), ny.toDouble(), button, dx?.toDouble(), dy?.toDouble()) }
+            for (e in mouseQueue) {
+                val send: suspend () -> Unit = {
+                    repo.api.screenMouse(e.type, e.nx, e.ny, e.button, e.dx, e.dy)
+                }
+                if (e.type == "mouseMoved") {
+                    runCatching { send() }
+                } else if (!attempt(send)) {
+                    _errors.tryEmit("Mouse ${if (e.type == "mousePressed") "press" else "release"} didn't reach the PC")
+                }
+            }
         }
+    }
+
+    fun mouse(type: String, nx: Float, ny: Float, button: String = "none", dx: Float? = null, dy: Float? = null) {
+        mouseQueue.trySend(MouseEvent(type, nx.toDouble(), ny.toDouble(), button, dx?.toDouble(), dy?.toDouble()))
     }
 
     fun scroll(nx: Float, ny: Float, deltaY: Float) = input { repo.api.screenScroll(nx.toDouble(), ny.toDouble(), deltaY.toDouble()) }

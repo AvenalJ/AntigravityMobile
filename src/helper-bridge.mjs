@@ -1,5 +1,5 @@
 /**
- * Helper Bridge — Node side of the localhost link to rustdesk-helper.exe.
+ * Helper Bridge — Node side of the localhost link to desktop-helper.exe.
  *
  * The Rust helper does whole-desktop capture (scrap) and input injection
  * (enigo). Node is a thin relay: it connects to the helper's localhost
@@ -17,7 +17,7 @@
 import { WebSocket } from 'ws';
 import { EventEmitter } from 'events';
 
-const HELPER_PORT = Number(process.env.RUSTDESK_HELPER_PORT) || 47632;
+const HELPER_PORT = Number(process.env.HELPER_PORT || process.env.RUSTDESK_HELPER_PORT) || 47632;
 const HELPER_URL = `ws://127.0.0.1:${HELPER_PORT}`;
 
 export const helperEvents = new EventEmitter();
@@ -58,7 +58,7 @@ function connect() {
     ws.on('open', () => {
         connected = true;
         backoff = 500;
-        console.log(`🖥️  Connected to rustdesk-helper at ${HELPER_URL}`);
+        console.log(`🖥️  Connected to desktop-helper at ${HELPER_URL}`);
         helperEvents.emit('status', { connected: true });
         flushPending(); // deliver keystrokes typed during the reconnect gap
     });
@@ -87,7 +87,7 @@ function connect() {
     });
 
     const reconnect = () => {
-        if (connected) console.log('🖥️  rustdesk-helper disconnected; reconnecting…');
+        if (connected) console.log('🖥️  desktop-helper disconnected; reconnecting…');
         connected = false;
         helperEvents.emit('status', { connected: false });
         ws = null;

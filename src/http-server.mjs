@@ -657,6 +657,150 @@ app.get('/admin', localhostOnly, (req, res) => {
     res.sendFile(join(PROJECT_ROOT, 'public', 'admin.html'));
 });
 
+// ============================================================================
+// Setup wizard — first-run guide (localhost only, like the admin panel)
+// ============================================================================
+app.get('/setup', localhostOnly, (req, res) => {
+    res.sendFile(join(PROJECT_ROOT, 'public', 'setup.html'));
+});
+
+// Everything the wizard needs to show live progress in one call.
+app.get('/api/setup/status', localhostOnly, async (req, res) => {
+    // CDP reachable? (Antigravity running with --remote-debugging-port)
+    const cdpPort = Config.getConfig('devices')?.find(d => d.active)?.cdpPort || 9333;
+    let cdpActive = false;
+    try {
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(), 1500);
+        const r = await fetch(`http://127.0.0.1:${cdpPort}/json/version`, { signal: ctrl.signal });
+        clearTimeout(t);
+        cdpActive = r.ok;
+    } catch (e) { }
+
+    // Network: LAN + Tailscale (100.64.0.0/10 CGNAT range or adapter name)
+    let lanIP = null, tailscaleIP = null;
+    const nets = networkInterfaces();
+    for (const [name, entries] of Object.entries(nets)) {
+        for (const net of entries || []) {
+            if (net.family !== 'IPv4' || net.internal) continue;
+            const isTs = name.toLowerCase().includes('tailscale') || /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(net.address);
+            if (isTs && !tailscaleIP) tailscaleIP = net.address;
+            else if (net.address.startsWith('192.168.') && !net.address.endsWith('.1') && !lanIP) lanIP = net.address;
+        }
+    }
+
+    const helperExe = findHelperExe();
+
+    res.json({
+        platform: process.platform,
+        port: Config.getConfig('server.port') || 5000,
+        antigravity: { app: findAntigravityExe('app'), ide: findAntigravityExe('ide') },
+        cdp: { port: cdpPort, active: cdpActive },
+        helper: {
+            exeExists: !!helperExe, exePath: helperExe,
+            connected: HelperBridge.isConnected(), geometry: HelperBridge.getGeometry(),
+            cargoAvailable: await hasCargo(),
+            build: helperBuild,
+        },
+        network: { lanIP, tailscaleIP },
+        pairingCode: Pairing.getCode(),
+        pairedDevices: Pairing.listDevices().length,
+    });
+});
+
+// The helper exe, wherever a build left it (new name preferred, legacy accepted).
+function findHelperExe() {
+    const dir = join(PROJECT_ROOT, 'rust-helper', 'target', 'release');
+    const names = process.platform === 'win32'
+        ? ['desktop-helper.exe', 'rustdesk-helper.exe']
+        : ['desktop-helper', 'rustdesk-helper'];
+    for (const n of names) {
+        const p = join(dir, n);
+        if (existsSync(p)) return p;
+    }
+    return null;
+}
+
+let cargoChecked = null;
+async function hasCargo() {
+    if (cargoChecked !== null) return cargoChecked;
+    cargoChecked = await new Promise(r => {
+        const c = spawn(process.platform === 'win32' ? 'cargo.exe' : 'cargo', ['--version'], { shell: true, stdio: 'ignore' });
+        c.on('error', () => r(false));
+        c.on('exit', code => r(code === 0));
+    });
+    return cargoChecked;
+}
+
+// Set the Antigravity executable path by hand when auto-detection fails.
+// Persisted in config; findAntigravityExe honours it before the defaults.
+app.post('/api/setup/antigravity-path', localhostOnly, (req, res) => {
+    const p = String(req.body?.path || '').trim().replace(/^"|"$/g, '');
+    if (!p || !existsSync(p) || !statSync(p).isFile()) {
+        return res.status(400).json({ success: false, error: 'No file at that path. Paste the full path to Antigravity.exe.' });
+    }
+    Config.updateConfig('antigravityPath', p);
+    res.json({ success: true, path: p });
+});
+
+// Launch Antigravity with the CDP flag (no folder — restores last session).
+app.post('/api/setup/launch-antigravity', localhostOnly, (req, res) => {
+    const exe = findAntigravityExe('app') || findAntigravityExe('ide');
+    if (!exe) return res.status(404).json({ success: false, error: 'Antigravity not found — set the path above first.' });
+    const cdpPort = Config.getConfig('devices')?.find(d => d.active)?.cdpPort || 9333;
+    try {
+        spawn(exe, [`--remote-debugging-port=${cdpPort}`], { detached: true, stdio: 'ignore' }).unref();
+        res.json({ success: true, port: cdpPort });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+});
+
+// Build the desktop helper (cargo build --release), streaming progress into
+// an in-memory log the wizard polls via /api/setup/status.
+let helperBuild = { running: false, ok: null, log: [] };
+app.post('/api/setup/helper/build', localhostOnly, async (req, res) => {
+    if (helperBuild.running) return res.json({ success: true, alreadyRunning: true });
+    if (!(await hasCargo())) {
+        return res.status(400).json({ success: false, error: 'cargo_missing' });
+    }
+    helperBuild = { running: true, ok: null, log: ['$ cargo build --release'] };
+    const child = spawn('cargo', ['build', '--release'], {
+        cwd: join(PROJECT_ROOT, 'rust-helper'), shell: true,
+    });
+    const push = (chunk) => {
+        for (const line of chunk.toString().split(/\r?\n/)) {
+            if (!line.trim()) continue;
+            helperBuild.log.push(line);
+            if (helperBuild.log.length > 40) helperBuild.log.shift();
+        }
+    };
+    child.stdout.on('data', push);
+    child.stderr.on('data', push);
+    child.on('exit', code => {
+        helperBuild.running = false;
+        helperBuild.ok = code === 0;
+        helperBuild.log.push(code === 0 ? '✓ build finished' : `✗ build failed (exit ${code})`);
+        emitEvent(code === 0 ? 'success' : 'error', `Helper build ${code === 0 ? 'succeeded' : 'failed'}`);
+    });
+    child.on('error', e => {
+        helperBuild.running = false;
+        helperBuild.ok = false;
+        helperBuild.log.push(`✗ ${e.message}`);
+    });
+    res.json({ success: true });
+});
+
+// Start the built helper. It supervises the bridge, so it becomes the
+// top-level process; the bridge just waits for its WebSocket to appear.
+app.post('/api/setup/helper/start', localhostOnly, (req, res) => {
+    const exe = findHelperExe();
+    if (!exe) return res.status(404).json({ success: false, error: 'Helper not built yet.' });
+    if (HelperBridge.isConnected()) return res.json({ success: true, alreadyConnected: true });
+    try {
+        spawn(exe, [], { detached: true, stdio: 'ignore', cwd: PROJECT_ROOT }).unref();
+        res.json({ success: true });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+});
+
 // Get config
 app.get('/api/admin/config', localhostOnly, (req, res) => {
     const cfg = Config.getConfig();
@@ -1869,7 +2013,7 @@ app.post('/api/cdp/target', async (req, res) => {
 // Live screen as a lightweight JPEG — latest whole-desktop frame from the helper.
 app.get('/api/screen/live.jpg', async (req, res) => {
     const frame = HelperBridge.getLatestFrame();
-    if (!frame) return res.status(503).json({ error: 'No frame yet (is rustdesk-helper running?)' });
+    if (!frame) return res.status(503).json({ error: 'No frame yet (is desktop-helper running?)' });
     res.set('Content-Type', 'image/jpeg');
     res.set('Cache-Control', 'no-store');
     res.send(frame);
@@ -1888,7 +2032,10 @@ function findAntigravityExe(kind) {
     const sub = kind === 'ide' ? 'Antigravity IDE' : 'Antigravity';
     const exe = kind === 'ide' ? 'Antigravity IDE.exe' : 'Antigravity.exe';
     const envOverride = kind === 'ide' ? process.env.ANTIGRAVITY_IDE_PATH : process.env.ANTIGRAVITY_PATH;
+    // A path saved via the setup wizard wins for the 2.0 app.
+    const configOverride = kind === 'ide' ? null : Config.getConfig('antigravityPath');
     const candidates = [
+        configOverride,
         envOverride,
         join(local, 'Programs', sub, exe),
         join(local, sub, exe),
@@ -1966,7 +2113,7 @@ app.get('/api/pair/status', (req, res) => {
 });
 
 // Tap-to-control. Coordinates are normalised (0..1) over the captured desktop;
-// the Rust helper (rustdesk-helper.exe) maps them to absolute pixels for enigo.
+// the desktop helper (desktop-helper.exe) maps them to absolute pixels for enigo.
 // Full-desktop control replaces the old CDP/window + mouse_injector.py path.
 // All input routes require a paired device (full-PC-control gate).
 app.post('/api/screen/click', Pairing.requirePaired, async (req, res) => {

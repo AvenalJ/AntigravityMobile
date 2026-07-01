@@ -20,7 +20,7 @@ node src\http-server.mjs
 
 echo.
 echo   Bridge stopped.
-REM When launched by rustdesk-helper.exe (MOBILE_SUPERVISED=1) skip the pause so
+REM When launched by desktop-helper.exe (MOBILE_SUPERVISED=1) skip the pause so
 REM the helper can detect the exit and relaunch. Manual double-click still pauses.
 if "%MOBILE_SUPERVISED%"=="1" exit /b
 echo   Press any key to close.

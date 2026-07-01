@@ -259,6 +259,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "desktop-helper"
+version = "0.1.0"
+dependencies = [
+ "enigo",
+ "env_logger",
+ "futures-util",
+ "image",
+ "log",
+ "openh264",
+ "scrap",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-tungstenite",
+]
+
+[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -901,23 +918,6 @@ name = "regex-syntax"
 version = "0.8.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
-
-[[package]]
-name = "rustdesk-helper"
-version = "0.1.0"
-dependencies = [
- "enigo",
- "env_logger",
- "futures-util",
- "image",
- "log",
- "openh264",
- "scrap",
- "serde",
- "serde_json",
- "tokio",
- "tokio-tungstenite",
-]
 
 [[package]]
 name = "safe_arch"
