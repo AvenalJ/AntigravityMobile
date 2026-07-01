@@ -26,7 +26,7 @@ Mobile dashboard, native Android app, and full remote control for [Antigravity I
 - Screenshot timeline with auto-capture
 - Theme and layout customization for the mobile dashboard
 - Multi-device CDP switching, session event logs
-- Remote access via Cloudflare quick tunnels
+- Remote access via Cloudflare quick tunnels *(optional — Tailscale is the recommended path)*
 - Telegram bot notifications *(optional, **off by default** — the code ships but nothing runs unless you enable it in the admin panel)*
 
 **Error Detection** — monitors the chat stream and modal dialogs for errors like "Agent terminated" and "Model quota reached"; can alert via Telegram if enabled.
@@ -36,6 +36,8 @@ Mobile dashboard, native Android app, and full remote control for [Antigravity I
 ## Quick Start
 
 **Requirements:** Node.js 18+, Antigravity installed. Optional: Rust toolchain (for the desktop helper), [Tailscale](https://tailscale.com) (recommended for phone access), `cloudflared` for public tunnels.
+
+**Platform support:** developed and tested on **Windows 11**. The desktop helper (screen streaming + remote input) and quota monitoring are currently Windows-only; the dashboard, chat, files, and Git features of the bridge should work on macOS/Linux but are untested there.
 
 ```bash
 git clone https://github.com/Xpl4iN/AntigravityMobile.git
@@ -107,13 +109,17 @@ MOBILE_PIN=1234 node src/http-server.mjs
 
 The admin panel shows whether authentication is active; **Clear PIN** disables it.
 
-### Remote Access (Cloudflare tunnel)
+### Remote access — Tailscale (recommended)
+
+Install [Tailscale](https://tailscale.com/download) on the PC and on your phone, sign in with the same account, done. The phone reaches the bridge at `http://<tailscale-ip>:5000` from anywhere — private, end-to-end encrypted, no ports opened, nothing exposed to the internet. Tailscale is the security boundary this fork is designed around; the setup wizard walks you through it.
+
+### Remote access — Cloudflare tunnel (optional, inherited from upstream)
+
+An alternative if you can't use Tailscale: a random public `.trycloudflare.com` URL. The code is still wired up but this fork doesn't exercise it — prefer Tailscale.
 
 1. Install `cloudflared`
-2. Admin Panel → Remote Access → **Start Tunnel** — a random public URL + QR code appear
+2. Admin Panel → Remote Access → **Start Tunnel** — a public URL + QR code appear
 3. PIN authentication is required before the tunnel can start
-
-For phone access, prefer Tailscale — private, encrypted, and no public exposure.
 
 ### Telegram Bot (optional, off by default)
 
