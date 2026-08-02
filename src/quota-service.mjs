@@ -27,6 +27,11 @@ const CACHE_TTL = 15000; // 15 seconds
 
 let cachedConnection = null;
 let lastConnectionCheck = 0;
+
+// Last raw GetUserStatus payload, exposed via /api/quota/raw for discovering any
+// richer weekly-usage fields Antigravity may add beyond per-model quotaInfo.
+let lastRawUserStatus = null;
+export function getRawUserStatus() { return lastRawUserStatus; }
 const CONNECTION_CACHE_TTL = 60000; // 1 minute
 
 /**
@@ -248,12 +253,13 @@ function formatResetTime(resetAtMs) {
 
     if (diffMs <= 0) return 'Now';
 
-    const hours = Math.floor(diffMs / (1000 * 60 * 60));
+    const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    const hours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
     const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
 
-    if (hours > 0) {
-        return `${hours}h ${minutes}m`;
-    }
+    // Weekly quotas reset days out, so surface days when present.
+    if (days > 0) return `${days}d ${hours}h`;
+    if (hours > 0) return `${hours}h ${minutes}m`;
     return `${minutes}m`;
 }
 
@@ -289,6 +295,8 @@ function parseQuotaResponse(response) {
         // remainingFraction is 0-1, convert to percentage
         const remainingFraction = quotaInfo.remainingFraction ?? 1;
         const remainingPercent = Math.round(remainingFraction * 100);
+        // Weekly usage = the consumed portion of this model's quota period.
+        const usedPercent = Math.max(0, Math.min(100, 100 - remainingPercent));
 
         // Get model identifier
         const modelId = config.modelOrAlias?.model || config.modelOrAlias || 'unknown';
@@ -303,6 +311,7 @@ function parseQuotaResponse(response) {
             remaining: remainingPercent, // Display as percentage
             limit: 100,
             remainingPercent,
+            usedPercent,
             resetAt,
             resetIn: formatResetTime(resetAt),
             status: getStatus(remainingPercent)
@@ -350,10 +359,23 @@ export async function getQuota() {
         console.log('[QuotaService] Response structure:', JSON.stringify(response, null, 2).substring(0, 500));
 
         const models = parseQuotaResponse(response);
+        lastRawUserStatus = response;
+
+        // Weekly summary: quotas share a reset window, so use the soonest reset and
+        // the peak usage across models as the "this week" headline.
+        const resets = models.map(m => m.resetAt).filter(Boolean);
+        const soonestReset = resets.length ? Math.min(...resets) : null;
+        const peakUsed = models.length ? Math.max(...models.map(m => m.usedPercent || 0)) : 0;
+        const weekly = {
+            usedPercent: peakUsed,
+            resetAt: soonestReset,
+            resetIn: formatResetTime(soonestReset),
+        };
 
         const result = {
             available: true,
             models,
+            weekly,
             fetchedAt: new Date().toISOString()
         };
 

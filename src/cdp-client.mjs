@@ -7,30 +7,110 @@
  * - Page inspection
  */
 
+import { readFileSync, existsSync } from 'fs';
+import { join } from 'path';
+import { EventEmitter } from 'events';
+
+export const screenEvents = new EventEmitter();
+
 const CDP_PORTS = [9222, 9333, 9000, 9001, 9002, 9003];
 let cdpPort = null; // auto-discovered
 let preferredWorkspace = null;
+let cdpPreference = 'auto'; // 'auto' | 'app' (Antigravity 2.0) | 'ide' (Antigravity IDE)
+
+// Which Antigravity app each user-data dir belongs to.
+const APP_DIRS = [
+    { id: 'app', dir: 'Antigravity', name: 'Antigravity 2.0' },
+    { id: 'ide', dir: 'Antigravity IDE', name: 'Antigravity IDE' },
+];
 
 /**
- * Auto-discover the active CDP port by scanning known ports.
- * Caches the result so subsequent calls are instant.
+ * The Antigravity desktop apps are Electron/Chromium and write their live remote-
+ * debugging port to a `DevToolsActivePort` file in their user-data dir. The port is
+ * random per launch, so reading this file is the reliable way to find each running
+ * app (the 2.0 app holds the agent chat; the IDE has the Cascade panel).
+ */
+function devToolsSources() {
+    const out = [];
+    const roots = [process.env.APPDATA, process.env.LOCALAPPDATA].filter(Boolean);
+    for (const root of roots) {
+        for (const app of APP_DIRS) {
+            try {
+                const f = join(root, app.dir, 'DevToolsActivePort');
+                if (existsSync(f)) {
+                    const port = parseInt(readFileSync(f, 'utf-8').split(/\r?\n/)[0].trim());
+                    if (port > 0 && !out.find(s => s.port === port)) {
+                        out.push({ id: app.id, name: app.name, port });
+                    }
+                }
+            } catch (e) { /* ignore unreadable */ }
+        }
+    }
+    return out;
+}
+
+/** Set which app to mirror ('auto' | 'app' | 'ide'); forces rediscovery. */
+export function setCdpPreference(pref) {
+    cdpPreference = ['app', 'ide'].includes(pref) ? pref : 'auto';
+    resetPort();
+}
+
+export function getCdpPreference() {
+    return cdpPreference;
+}
+
+/** Report the discoverable sources, their reachability, and the active one. */
+export async function getSources() {
+    const sources = devToolsSources();
+    const result = [];
+    for (const s of sources) {
+        result.push({ ...s, available: await isCdpReachable(s.port) });
+    }
+    return { sources: result, preference: cdpPreference, activePort: cdpPort };
+}
+
+/** Candidate ports honouring the current preference. */
+function candidatePorts() {
+    const sources = devToolsSources();
+    if (cdpPreference === 'ide') {
+        return [...sources.filter(s => s.id === 'ide').map(s => s.port), 9222];
+    }
+    if (cdpPreference === 'app') {
+        return sources.filter(s => s.id === 'app').map(s => s.port);
+    }
+    return [...sources.map(s => s.port), ...CDP_PORTS];
+}
+
+async function isCdpReachable(port) {
+    try {
+        const res = await fetch(`http://localhost:${port}/json/version`, {
+            signal: AbortSignal.timeout(1500)
+        });
+        return res.ok;
+    } catch (e) {
+        return false;
+    }
+}
+
+/**
+ * Auto-discover the active CDP port. Prefers the DevToolsActivePort file (finds the
+ * Antigravity app on its random port), then falls back to the fixed port list.
+ * Re-validates a cached port so a stale/dead port (e.g. an IDE restart) self-heals.
  */
 async function discoverPort() {
-    if (cdpPort) return cdpPort;
-
-    for (const port of CDP_PORTS) {
-        try {
-            const res = await fetch(`http://localhost:${port}/json/version`, {
-                signal: AbortSignal.timeout(1500)
-            });
-            if (res.ok) {
-                cdpPort = port;
-                console.log(`🔌 CDP auto-discovered on port ${port}`);
-                return port;
-            }
-        } catch (e) { /* port not available */ }
+    if (cdpPort) {
+        if (await isCdpReachable(cdpPort)) return cdpPort;
+        cdpPort = null; // cached port is dead — rediscover
     }
-    throw new Error(`CDP not available on any port (tried ${CDP_PORTS.join(', ')})`);
+
+    for (const port of candidatePorts()) {
+        if (await isCdpReachable(port)) {
+            cdpPort = port;
+            console.log(`🔌 CDP discovered on port ${port} (preference: ${cdpPreference})`);
+            return port;
+        }
+    }
+    throw new Error(`CDP not available for preference "${cdpPreference}" (tried DevToolsActivePort + ${CDP_PORTS.join(', ')})`);
 }
 
 function getCdpUrl() {
@@ -56,6 +136,7 @@ export function getActiveDevice() {
  */
 export function resetPort() {
     cdpPort = null;
+    stopLive(); // live screencast points at the old target/port
 }
 
 /**
@@ -139,16 +220,40 @@ export async function connectToTarget(target) {
             let messageId = 1;
             const pending = new Map();
 
+            // Fail the connect attempt if the socket never opens.
+            const connectTimer = setTimeout(() => {
+                try { ws.close(); } catch (e) { }
+                reject(new Error('CDP connect timeout'));
+            }, 8000);
+
             ws.on('open', () => {
+                clearTimeout(connectTimer);
                 const client = {
-                    send: (method, params = {}) => {
+                    send: (method, params = {}, timeoutMs = 10000) => {
                         return new Promise((res, rej) => {
                             const id = messageId++;
-                            pending.set(id, { resolve: res, reject: rej });
+                            // Per-command timeout so a dropped CDP response never hangs forever.
+                            const timer = setTimeout(() => {
+                                if (pending.has(id)) {
+                                    pending.delete(id);
+                                    rej(new Error(`CDP command timeout: ${method}`));
+                                }
+                            }, timeoutMs);
+                            pending.set(id, {
+                                resolve: (v) => { clearTimeout(timer); res(v); },
+                                reject: (e) => { clearTimeout(timer); rej(e); },
+                            });
                             ws.send(JSON.stringify({ id, method, params }));
                         });
                     },
-                    close: () => ws.close(),
+                    // Fire-and-forget: send without awaiting a response. Used for input
+                    // events, whose CDP ack waits on the (possibly idle) renderer and
+                    // would otherwise hang. The effect still happens; we watch the result
+                    // via the live screencast.
+                    sendNoWait: (method, params = {}) => {
+                        ws.send(JSON.stringify({ id: messageId++, method, params }));
+                    },
+                    close: () => { try { ws.close(); } catch (e) { } },
                     ws
                 };
                 resolve(client);
@@ -164,8 +269,123 @@ export async function connectToTarget(target) {
                 }
             });
 
-            ws.on('error', reject);
+            ws.on('error', (e) => { clearTimeout(connectTimer); reject(e); });
         }).catch(reject);
+    });
+}
+
+// Serialise screen capture/input so overlapping CDP connections don't contend
+// (which was causing intermittent multi-second hangs on the 2.0 app).
+let cdpLock = Promise.resolve();
+export function withCdpLock(fn) {
+    const run = cdpLock.then(fn, fn);
+    // keep the chain alive regardless of success/failure
+    cdpLock = run.then(() => {}, () => {});
+    return run;
+}
+
+// ----------------------------------------------------------------------------
+// Live screen via CDP screencast.
+// Page.captureScreenshot blocks until the window composites a frame, so it hangs
+// for an idle/background window. A running screencast forces frame production and
+// delivers the current frame in ~50ms; we keep one running and cache the latest
+// frame so the phone can fetch it instantly. Auto-stops after inactivity.
+// ----------------------------------------------------------------------------
+let live = null;          // { client, latest, lastAccess }
+let liveStarting = null;  // in-flight start guard
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+async function ensureLive() {
+    if (live && live.client.ws.readyState === 1) return live;
+    if (liveStarting) return liveStarting;
+    liveStarting = (async () => {
+        await stopLive();
+        const target = await findEditorTarget();
+        if (!target) throw new Error('No editor target found');
+        const client = await connectToTarget(target);
+        const state = { client, latest: null, lastAccess: Date.now() };
+        // Screencast frames arrive as events (no id); listen alongside the RPC handler.
+        client.ws.on('message', (data) => {
+            let m;
+            try { m = JSON.parse(data.toString()); } catch (e) { return; }
+            if (m.method === 'Page.screencastFrame') {
+                state.latest = m.params.data;
+                screenEvents.emit('frame', m.params.data);
+                client.send('Page.screencastFrameAck', { sessionId: m.params.sessionId }).catch(() => {});
+            }
+        });
+        client.ws.on('close', () => { if (live === state) live = null; });
+        await client.send('Page.enable');
+        // Best-effort: nudge an occluded window to composite. (Won't un-minimize —
+        // a minimized Electron window has no surface for CDP to capture.)
+        await client.send('Page.bringToFront').catch(() => {});
+        await client.send('Page.startScreencast', {
+            format: 'jpeg', quality: 55, everyNthFrame: 1, maxWidth: 1600, maxHeight: 1000,
+        });
+        live = state;
+        return state;
+    })();
+    try { return await liveStarting; }
+    finally { liveStarting = null; }
+}
+
+async function stopLive() {
+    const cur = live;
+    live = null;
+    if (cur) {
+        try { await cur.client.send('Page.stopScreencast'); } catch (e) { }
+        try { cur.client.close(); } catch (e) { }
+    }
+}
+
+/** True while a live screencast is running (it monopolises the 2.0 app's single CDP slot). */
+export function isLiveActive() {
+    return live != null;
+}
+
+/** Get the latest live frame (base64 jpeg); starts the screencast if needed. */
+export async function getLiveFrame(maxWaitMs = 4000) {
+    return withCdpLock(async () => {
+        const state = await ensureLive();
+        state.lastAccess = Date.now();
+        const start = Date.now();
+        while (!state.latest && Date.now() - start < maxWaitMs) await sleep(40);
+        if (!state.latest) throw new Error('No live frame yet');
+        return state.latest;
+    });
+}
+
+/** Keep the screencast running for WebSocket clients. */
+export async function keepScreenAlive() {
+    return withCdpLock(async () => {
+        const state = await ensureLive();
+        state.lastAccess = Date.now();
+    });
+}
+
+// Stop the screencast soon after the Screen tab stops fetching frames, so the single
+// CDP slot is freed for approvals/workspace polling again.
+setInterval(() => {
+    if (live && Date.now() - live.lastAccess > 6000) stopLive();
+}, 2000).unref?.();
+
+// Input/capture can't run while a screencast holds the (single) CDP slot, so each
+// op stops the live screencast, runs on a fresh connection, then closes — the next
+// getLiveFrame restarts the screencast. withCdpLock serialises this with frame
+// fetches so they never overlap on the 2.0 app's CDP.
+function screenOp(fn) {
+    return withCdpLock(async () => {
+        const wasLive = !!live;
+        await stopLive();
+        if (wasLive) await sleep(250); // let the 2.0 app release the CDP after stopScreencast
+        const target = await findEditorTarget();
+        if (!target) throw new Error('No editor target found');
+        const client = await connectToTarget(target);
+        try {
+            return await fn(client);
+        } finally {
+            client.close();
+        }
     });
 }
 
@@ -174,22 +394,14 @@ export async function connectToTarget(target) {
  * Returns base64-encoded PNG
  */
 export async function captureScreenshot(options = {}) {
-    const target = await findEditorTarget();
-    if (!target) throw new Error('No editor target found');
-
-    const client = await connectToTarget(target);
-
-    try {
-        const result = await client.send('Page.captureScreenshot', {
-            format: options.format || 'png',
-            quality: options.quality || 80,
-            captureBeyondViewport: false
-        });
-
-        return result.data; // base64 string
-    } finally {
-        client.close();
-    }
+  return screenOp(async (client) => {
+    const result = await client.send('Page.captureScreenshot', {
+        format: options.format || 'png',
+        quality: options.quality || 80,
+        captureBeyondViewport: false
+    }, options.timeoutMs || 8000);
+    return result.data; // base64 string
+  });
 }
 
 /**
@@ -313,6 +525,151 @@ export async function injectAndSubmit(text) {
     } finally {
         client.close();
     }
+}
+
+// ============================================================================
+// Tap-to-control — coordinate input injection for the live screen view.
+// Coordinates are NORMALISED (0..1) so they are resolution-independent; the
+// server maps them to the page's CSS viewport.
+// ============================================================================
+
+let cachedViewport = { x: 0, y: 0, w: 1280, h: 800 };
+
+export function getAbsoluteViewport() {
+    return cachedViewport;
+}
+
+async function cssViewport(client) {
+    // Runtime.evaluate is reliable across these Electron targets; Page.getLayoutMetrics
+    // can hang on the 2.0 app, so use innerWidth/innerHeight instead.
+    const res = await client.send('Runtime.evaluate', {
+        expression: '({x: window.screenLeft * window.devicePixelRatio, y: window.screenTop * window.devicePixelRatio, w: window.innerWidth * window.devicePixelRatio, h: window.innerHeight * window.devicePixelRatio})',
+        returnByValue: true,
+    });
+    const v = res?.result?.value || {};
+    cachedViewport = { x: v.x || 0, y: v.y || 0, w: v.w || 1280, h: v.h || 800 };
+    return cachedViewport;
+}
+
+export function liveSendNoWait(method, params) {
+    if (live) {
+        live.client.sendNoWait(method, params);
+        return true;
+    }
+    return false;
+}
+
+/** Dispatch a single mouse event (useful for dragging). */
+export async function dispatchMouse(type, normX, normY, button = 'none') {
+    if (live) {
+        const { w, h } = cachedViewport;
+        const x = Math.max(0, Math.min(1, normX)) * w;
+        const y = Math.max(0, Math.min(1, normY)) * h;
+        liveSendNoWait('Input.dispatchMouseEvent', { type, x, y, button, clickCount: 1 });
+        return { success: true, x, y };
+    }
+    return screenOp(async (client) => {
+        const { w, h } = await cssViewport(client);
+        const x = Math.max(0, Math.min(1, normX)) * w;
+        const y = Math.max(0, Math.min(1, normY)) * h;
+        client.sendNoWait('Input.dispatchMouseEvent', { type, x, y, button, clickCount: 1 });
+        await sleep(50);
+        return { success: true, x, y };
+    });
+}
+
+/** Click at a normalised (0..1) point on the mirrored page. */
+export async function clickAt(normX, normY, clickCount = 1) {
+    if (live) {
+        const { w, h } = cachedViewport;
+        const x = Math.max(0, Math.min(1, normX)) * w;
+        const y = Math.max(0, Math.min(1, normY)) * h;
+        liveSendNoWait('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, button: 'none' });
+        liveSendNoWait('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount });
+        liveSendNoWait('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount });
+        return { success: true, x, y };
+    }
+  return screenOp(async (client) => {
+    const { w, h } = await cssViewport(client);
+    const x = Math.max(0, Math.min(1, normX)) * w;
+    const y = Math.max(0, Math.min(1, normY)) * h;
+    client.sendNoWait('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, button: 'none' });
+    client.sendNoWait('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount });
+    client.sendNoWait('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount });
+    await sleep(150); // let the events flush before the connection closes
+    return { success: true, x, y };
+  });
+}
+
+/** Insert literal text at the current focus (after a click). */
+export async function typeText(text) {
+    if (live) {
+        liveSendNoWait('Input.insertText', { text });
+        return { success: true };
+    }
+  return screenOp(async (client) => {
+    client.sendNoWait('Input.insertText', { text });
+    await sleep(120);
+    return { success: true };
+  });
+}
+
+const KEY_MAP = {
+    Enter: { code: 'Enter', vk: 13 },
+    Backspace: { code: 'Backspace', vk: 8 },
+    Tab: { code: 'Tab', vk: 9 },
+    Escape: { code: 'Escape', vk: 27 },
+    Delete: { code: 'Delete', vk: 46 },
+    ArrowUp: { code: 'ArrowUp', vk: 38 },
+    ArrowDown: { code: 'ArrowDown', vk: 40 },
+    ArrowLeft: { code: 'ArrowLeft', vk: 37 },
+    ArrowRight: { code: 'ArrowRight', vk: 39 },
+};
+
+/** Press a named special key. */
+export async function pressKey(key) {
+    const k = KEY_MAP[key];
+    if (!k) throw new Error(`Unsupported key: ${key}`);
+    
+    const base = { key, code: k.code, windowsVirtualKeyCode: k.vk, nativeVirtualKeyCode: k.vk };
+    if (live) {
+        liveSendNoWait('Input.dispatchKeyEvent', { type: 'keyDown', ...base });
+        liveSendNoWait('Input.dispatchKeyEvent', { type: 'keyUp', ...base });
+        return { success: true };
+    }
+  return screenOp(async (client) => {
+    client.sendNoWait('Input.dispatchKeyEvent', { type: 'keyDown', ...base });
+    client.sendNoWait('Input.dispatchKeyEvent', { type: 'keyUp', ...base });
+    await sleep(120);
+    return { success: true };
+  });
+}
+
+/** Mouse-wheel scroll at a normalised point. */
+export async function scrollAt(normX, normY, deltaY) {
+    if (live) {
+        const { w, h } = cachedViewport;
+        liveSendNoWait('Input.dispatchMouseEvent', {
+            type: 'mouseWheel',
+            x: Math.max(0, Math.min(1, normX)) * w,
+            y: Math.max(0, Math.min(1, normY)) * h,
+            deltaX: 0,
+            deltaY,
+        });
+        return { success: true };
+    }
+  return screenOp(async (client) => {
+    const { w, h } = await cssViewport(client);
+    client.sendNoWait('Input.dispatchMouseEvent', {
+        type: 'mouseWheel',
+        x: Math.max(0, Math.min(1, normX)) * w,
+        y: Math.max(0, Math.min(1, normY)) * h,
+        deltaX: 0,
+        deltaY,
+    });
+    await sleep(150);
+    return { success: true };
+  });
 }
 
 /**
@@ -1590,6 +1947,90 @@ export async function respondToApproval(action) {
  * Click an element in the Antigravity chat by XPath
  * Searches all execution contexts for #cascade, then clicks the element
  */
+/**
+ * Fill a text input/textarea identified by xpath with `text` (React-safe:
+ * uses the native value setter + dispatches input/change), then optionally
+ * click a submit element identified by `submitXpath`.
+ * Used for the "Other (write your answer)" field in multiple-choice prompts.
+ */
+export async function fillAndSubmitByXPath(xpath, text, submitXpath = null) {
+    const target = await findEditorTarget();
+    if (!target) throw new Error('No editor target found');
+
+    return new Promise(async (resolve) => {
+        const { default: WebSocket } = await import('ws');
+        const ws = new WebSocket(target.webSocketDebuggerUrl);
+        const contexts = [];
+        let messageId = 1;
+        const pending = new Map();
+
+        const call = (method, params = {}) => new Promise((res, rej) => {
+            const id = messageId++;
+            pending.set(id, { resolve: res, reject: rej });
+            ws.send(JSON.stringify({ id, method, params }));
+            setTimeout(() => { if (pending.has(id)) { pending.delete(id); rej(new Error('Timeout')); } }, 4000);
+        });
+
+        ws.on('message', (msg) => {
+            try {
+                const data = JSON.parse(msg.toString());
+                if (data.id && pending.has(data.id)) {
+                    const { resolve, reject } = pending.get(data.id);
+                    pending.delete(data.id);
+                    if (data.error) reject(new Error(data.error.message)); else resolve(data.result);
+                } else if (data.method === 'Runtime.executionContextCreated') {
+                    contexts.push(data.params.context);
+                }
+            } catch (e) { }
+        });
+
+        ws.on('open', async () => {
+            try {
+                await call('Runtime.enable', {});
+                await new Promise(r => setTimeout(r, 400));
+
+                const SCRIPT = `(async () => {
+                    const find = (xp) => document.evaluate(xp, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+                    try {
+                        const el = find(${JSON.stringify(xpath)});
+                        if (!el) return { found: false };
+                        el.focus();
+                        const proto = el.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+                        const setter = Object.getOwnPropertyDescriptor(proto, 'value').set;
+                        setter.call(el, ${JSON.stringify(text)});
+                        el.dispatchEvent(new Event('input', { bubbles: true }));
+                        el.dispatchEvent(new Event('change', { bubbles: true }));
+                        await new Promise(r => setTimeout(r, 150));
+                        ${submitXpath ? `const sb = find(${JSON.stringify(submitXpath)}); if (sb) sb.click();` : ''}
+                        return { found: true, filled: true };
+                    } catch(e) { return { found: false, error: e.message }; }
+                })()`;
+
+                for (const ctx of contexts) {
+                    try {
+                        const result = await call('Runtime.evaluate', {
+                            expression: SCRIPT, returnByValue: true, awaitPromise: true, contextId: ctx.id
+                        });
+                        const val = result.result?.value;
+                        if (val?.found && val.filled) {
+                            ws.close();
+                            resolve({ success: true });
+                            return;
+                        }
+                    } catch (e) { }
+                }
+                ws.close();
+                resolve({ success: false, error: 'Input not found in any context' });
+            } catch (e) {
+                ws.close();
+                resolve({ success: false, error: e.message });
+            }
+        });
+
+        ws.on('error', () => resolve({ success: false, error: 'WebSocket error' }));
+    });
+}
+
 export async function clickElementByXPath(xpath) {
     const target = await findEditorTarget();
     if (!target) throw new Error('No editor target found');
@@ -1630,9 +2071,10 @@ export async function clickElementByXPath(xpath) {
                 await call('Runtime.enable', {});
                 await new Promise(r => setTimeout(r, 400));
 
+                // NOTE: Antigravity 2.0 has no #cascade element, so we no longer
+                // gate on it. We evaluate the xpath in every context and click in
+                // whichever one actually contains the target element.
                 const SCRIPT = `(() => {
-                    const cascade = document.getElementById('cascade') || document.getElementById('conversation');
-                    if (!cascade) return { found: false };
                     try {
                         const el = document.evaluate(
                             ${JSON.stringify(xpath)},
@@ -1641,11 +2083,12 @@ export async function clickElementByXPath(xpath) {
                             XPathResult.FIRST_ORDERED_NODE_TYPE,
                             null
                         ).singleNodeValue;
-                        if (!el) return { found: true, clicked: false, error: 'XPath not found' };
+                        if (!el) return { found: false };
+                        el.scrollIntoView({ block: 'center' });
                         el.click();
                         return { found: true, clicked: true, tag: el.tagName, text: (el.innerText || '').slice(0, 60) };
                     } catch(e) {
-                        return { found: true, clicked: false, error: e.message };
+                        return { found: false, error: e.message };
                     }
                 })()`;
 
@@ -1657,18 +2100,16 @@ export async function clickElementByXPath(xpath) {
                             contextId: ctx.id
                         });
                         const val = result.result?.value;
-                        if (val?.found) {
+                        if (val?.found && val.clicked) {
                             ws.close();
-                            resolve(val.clicked
-                                ? { success: true, tag: val.tag, text: val.text }
-                                : { success: false, error: val.error });
+                            resolve({ success: true, tag: val.tag, text: val.text });
                             return;
                         }
                     } catch (e) { }
                 }
 
                 ws.close();
-                resolve({ success: false, error: 'Cascade context not found' });
+                resolve({ success: false, error: 'Element not found in any context' });
             } catch (e) {
                 ws.close();
                 resolve({ success: false, error: e.message });

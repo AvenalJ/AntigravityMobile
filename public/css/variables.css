@@ -3,37 +3,38 @@
  * ============================================ */
 
 :root {
-    --bg-dark: #0a0a0f;
-    --bg-card: rgba(18, 18, 28, 0.95);
-    --bg-glass: rgba(255, 255, 255, 0.04);
-    --accent-primary: #0ea5e9;
-    --accent-secondary: #06b6d4;
-    --accent-glow: rgba(14, 165, 233, 0.3);
-    --success: #22c55e;
-    --warning: #eab308;
-    --error: #ef4444;
-    --text-primary: #ffffff;
-    --text-secondary: rgba(255, 255, 255, 0.7);
-    --text-muted: rgba(255, 255, 255, 0.4);
-    --border: rgba(255, 255, 255, 0.1);
-    --border-hover: rgba(255, 255, 255, 0.18);
+    /* Matches the native app theme: teal accent + dark-green neutral surfaces. */
+    --bg-dark: #0F1413;
+    --bg-card: #151B1A;
+    --bg-glass: rgba(255, 255, 255, 0.05);
+    --accent-primary: #3DD6B6;
+    --accent-secondary: #2BB89B;
+    --accent-glow: rgba(61, 214, 182, 0.22);
+    --success: #2FB36B;
+    --warning: #E0B341;
+    --error: #E5534B;
+    --text-primary: #E6ECEA;
+    --text-secondary: #A9B4B1;
+    --text-muted: rgba(169, 180, 177, 0.6);
+    --border: #2C3633;
+    --border-hover: #3A4744;
     --sidebar-width: 240px;
     --sidebar-collapsed: 64px;
 }
 
 /* Light Theme */
 .light-theme {
-    --bg-dark: #f8fafc;
-    --bg-card: #ffffff;
-    --bg-glass: rgba(0, 0, 0, 0.03);
-    --accent-primary: #06b6d4;
-    --accent-secondary: #0891b2;
-    --accent-glow: rgba(6, 182, 212, 0.2);
-    --text-primary: #1e293b;
-    --text-secondary: #475569;
-    --text-muted: #94a3b8;
-    --border: rgba(0, 0, 0, 0.08);
-    --border-hover: rgba(0, 0, 0, 0.15);
+    --bg-dark: #FBFCFC;
+    --bg-card: #FFFFFF;
+    --bg-glass: rgba(0, 0, 0, 0.04);
+    --accent-primary: #1E8F79;
+    --accent-secondary: #2BB89B;
+    --accent-glow: rgba(30, 143, 121, 0.18);
+    --text-primary: #12201D;
+    --text-secondary: #49544F;
+    --text-muted: #6E7A76;
+    --border: #C8D2CF;
+    --border-hover: #AEBAB6;
 }
 
 /* Pastel Theme */

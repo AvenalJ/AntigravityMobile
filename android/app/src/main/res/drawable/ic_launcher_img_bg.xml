@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Full-bleed launcher image on a dark fill (so the adaptive mask's cropped corners
+     are clean rather than transparent). Used as the adaptive-icon background layer. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/ic_launcher_background" />
+    <item>
+        <bitmap android:src="@drawable/ic_launcher_img" android:gravity="fill" />
+    </item>
+</layer-list>

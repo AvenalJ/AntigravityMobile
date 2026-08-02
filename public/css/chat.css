@@ -62,3 +62,381 @@
         .chat-send:active {
             transform: scale(0.95);
         }
+
+/* ============================================
+ * Structured Chat Renderer (.sc-*)
+ * Clean, style-independent view of the agent
+ * conversation extracted from Antigravity.
+ * ============================================ */
+
+        .ic { display: inline-block; vertical-align: -0.15em; }
+
+        .sc-msg {
+            display: flex;
+            flex-direction: column;
+            margin-bottom: 20px;
+            animation: scFade 0.25s ease;
+        }
+
+        @keyframes scFade {
+            from { opacity: 0; transform: translateY(4px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+
+        /* User message — right-aligned bubble */
+        .sc-user {
+            align-items: flex-end;
+        }
+
+        .sc-user .sc-bubble {
+            max-width: 84%;
+            padding: 11px 15px;
+            background: var(--accent-primary);
+            color: #fff;
+            border-radius: 16px 16px 4px 16px;
+            font-size: 15px;
+            line-height: 1.5;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        /* Agent message — full-width card */
+        .sc-agent {
+            align-items: stretch;
+        }
+
+        /* Activity ("Worked for Xs" + step timeline) — compact pill, hugs content */
+        .sc-activity {
+            align-self: flex-start;
+            max-width: 100%;
+            background: var(--bg-glass);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 7px 12px;
+            margin-bottom: 10px;
+        }
+
+        .sc-worked {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-secondary, var(--text-muted));
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .sc-worked > .ic { color: var(--accent-primary); }
+
+        .sc-steps {
+            margin-top: 6px;
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+            border-left: 2px solid var(--border);
+            padding-left: 8px;
+        }
+
+        .sc-step {
+            font-size: 12.5px;
+            color: var(--text-muted);
+            display: flex;
+            gap: 7px;
+            align-items: center;
+            word-break: break-word;
+        }
+
+        .sc-step-ico { flex-shrink: 0; display: inline-flex; color: var(--text-muted); }
+        .sc-step-edit  { color: var(--text-secondary, var(--text-primary)); }
+        .sc-step-run   { font-family: 'Consolas', 'Monaco', monospace; }
+
+        /* Live spinner while the agent is working */
+        .sc-spinner {
+            width: 11px;
+            height: 11px;
+            border: 2px solid var(--accent-primary);
+            border-top-color: transparent;
+            border-radius: 50%;
+            display: inline-block;
+            animation: scSpin 0.7s linear infinite;
+        }
+
+        @keyframes scSpin { to { transform: rotate(360deg); } }
+
+        .sc-working .sc-activity {
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 0 1px var(--accent-glow);
+        }
+
+        /* Agent answer prose */
+        .sc-prose {
+            font-size: 15px;
+            line-height: 1.62;
+            color: var(--text-primary);
+            word-break: break-word;
+        }
+
+        .sc-prose p { margin: 0 0 8px; }
+        .sc-prose p:last-child { margin-bottom: 0; }
+        .sc-prose ul, .sc-prose ol { margin: 6px 0; padding-left: 20px; }
+        .sc-prose li { margin: 2px 0; }
+        .sc-prose a { color: var(--accent-primary); }
+        .sc-prose code {
+            background: rgba(127, 127, 127, 0.18);
+            padding: 1px 5px;
+            border-radius: 5px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.9em;
+            word-break: break-word;
+        }
+
+        .sc-prose pre {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 12px;
+            border-radius: 8px;
+            overflow-x: auto;
+            margin: 8px 0;
+            font-size: 13px;
+            line-height: 1.4;
+        }
+
+        .sc-prose pre code { background: none; padding: 0; }
+        .sc-prose blockquote {
+            border-left: 3px solid var(--border);
+            margin: 8px 0;
+            padding-left: 10px;
+            color: var(--text-muted);
+        }
+
+        .sc-prose table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 13px; }
+        .sc-prose th, .sc-prose td { border: 1px solid var(--border); padding: 4px 8px; text-align: left; }
+
+        /* File-change summary */
+        .sc-changes {
+            margin-top: 8px;
+            font-size: 13px;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .sc-add { color: #3fb950; font-weight: 600; }
+        .sc-del { color: #f85149; font-weight: 600; }
+
+        /* Live action buttons (Run / Accept / Reject) */
+        .sc-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 10px;
+            flex-wrap: wrap;
+        }
+
+        .sc-action {
+            padding: 8px 18px;
+            border-radius: 10px;
+            border: 1.5px solid var(--accent-primary);
+            background: transparent;
+            color: var(--text-primary);
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .sc-action:active { transform: scale(0.96); }
+        .sc-action-accept { background: var(--accent-primary); color: #fff; border-color: var(--accent-primary); }
+        .sc-action-reject { border-color: #f85149; color: #f85149; }
+
+        /* Multiple-choice prompt card */
+        .sc-prompt {
+            margin: 6px 0 14px;
+            padding: 14px;
+            background: var(--bg-glass);
+            border: 1.5px solid var(--accent-primary);
+            border-radius: 14px;
+            box-shadow: 0 0 0 1px var(--accent-glow);
+            animation: scFade 0.25s ease;
+        }
+
+        .sc-prompt-q {
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 12px;
+            line-height: 1.4;
+        }
+
+        .sc-prompt-opts {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .sc-prompt-opt {
+            width: 100%;
+            text-align: left;
+            padding: 12px 14px;
+            font-weight: 500;
+        }
+
+        .sc-prompt-other {
+            display: flex;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .sc-prompt-input {
+            flex: 1;
+            padding: 11px 14px;
+            background: var(--bg-glass);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            color: var(--text-primary);
+            font-size: 14px;
+            outline: none;
+        }
+
+        .sc-prompt-input:focus { border-color: var(--accent-primary); }
+        .sc-prompt-send { flex-shrink: 0; }
+
+        .sc-prompt-skip {
+            margin-top: 10px;
+            width: 100%;
+            padding: 9px;
+            background: transparent;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            color: var(--text-muted);
+            font-size: 13px;
+            cursor: pointer;
+        }
+
+        .sc-prompt button:disabled, .sc-prompt input:disabled { cursor: not-allowed; }
+
+        /* Artifact banner + full-screen reader */
+        .sc-artifact-banner {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 14px;
+            margin-bottom: 12px;
+            background: var(--bg-glass);
+            border: 1px solid var(--accent-primary);
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .sc-artifact-banner:active { transform: scale(0.99); }
+        .sc-art-ico { font-size: 18px; }
+        .sc-art-title { flex: 1; font-weight: 600; font-size: 14.5px; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .sc-art-open { font-size: 13px; color: var(--accent-primary); font-weight: 600; flex-shrink: 0; }
+
+        .sc-art-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 1000;
+            background: var(--bg-primary, #0a0a0f);
+            display: none;
+            flex-direction: column;
+        }
+
+        .sc-art-head {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 14px 16px;
+            border-bottom: 1px solid var(--border);
+            flex-shrink: 0;
+            background: rgba(0,0,0,0.3);
+        }
+
+        .sc-art-close {
+            width: 36px; height: 36px;
+            border-radius: 50%;
+            border: 1px solid var(--border);
+            background: transparent;
+            color: var(--text-primary);
+            font-size: 16px;
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+
+        .sc-art-head-title { flex: 1; font-weight: 700; font-size: 15px; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .sc-art-nav { display: flex; gap: 6px; flex-shrink: 0; }
+        .sc-art-nav button {
+            padding: 7px 12px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: transparent;
+            color: var(--text-primary);
+            font-size: 13px;
+            cursor: pointer;
+        }
+        .sc-art-nav button:disabled { opacity: 0.35; cursor: not-allowed; }
+
+        .sc-art-body {
+            flex: 1;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+            padding: 16px;
+        }
+
+        .sc-art-body h1 { font-size: 22px; margin: 0 0 12px; }
+        .sc-art-body h2 { font-size: 18px; margin: 18px 0 8px; }
+        .sc-art-body img { max-width: 100%; height: auto; border-radius: 8px; }
+        .sc-img-missing { display: inline-block; padding: 4px 8px; background: rgba(127,127,127,0.15); border-radius: 6px; font-size: 13px; color: var(--text-muted); }
+
+        /* Conversation picker */
+        .convo-picker {
+            position: absolute;
+            top: 56px; right: 8px;
+            width: min(340px, 92vw);
+            max-height: 70vh;
+            background: var(--bg-card, var(--bg-glass));
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+            z-index: 900;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            backdrop-filter: blur(12px);
+        }
+
+        .convo-picker-head {
+            padding: 12px 14px 8px;
+            font-weight: 700;
+            font-size: 14px;
+            color: var(--text-primary);
+        }
+        .convo-picker-head span { color: var(--text-muted); font-weight: 400; }
+
+        .convo-search {
+            margin: 0 12px 8px;
+            padding: 9px 12px;
+            background: var(--bg-glass);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-size: 14px;
+            outline: none;
+        }
+        .convo-search:focus { border-color: var(--accent-primary); }
+
+        .convo-list { overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 0 6px 8px; }
+
+        .convo-item {
+            padding: 10px 12px;
+            border-radius: 8px;
+            font-size: 14px;
+            color: var(--text-secondary, var(--text-primary));
+            cursor: pointer;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .convo-item:hover { background: var(--bg-glass); }
+        .convo-item.active { color: var(--accent-primary); font-weight: 600; background: var(--accent-glow); }
+        .convo-empty { padding: 16px; text-align: center; color: var(--text-muted); font-size: 13px; }

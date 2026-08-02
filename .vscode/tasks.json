@@ -1,0 +1,51 @@
+{
+  // Auto-starts the Antigravity Mobile bridge server when this folder is opened
+  // in Antigravity IDE (VS Code-based). The bridge serves the HTTP + WebSocket
+  // API on port 5000 (see data/config.json -> server.port) bound to 0.0.0.0,
+  // so the Android companion can reach it over the Tailscale network.
+  //
+  // NOTE: VS Code only runs "folderOpen" tasks after you allow automatic tasks
+  // once via: Command Palette -> "Tasks: Manage Automatic Tasks" -> "Allow Automatic Tasks in Folder".
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Antigravity Mobile Bridge",
+      "type": "shell",
+      "command": "npm",
+      "args": ["start"],
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          // Skip the interactive PIN prompt so the task never blocks on stdin.
+          // Set MOBILE_PIN (4-6 digits) here instead if you want PIN auth.
+          "MOBILE_SKIP_AUTH_PROMPT": "1"
+        }
+      },
+      "isBackground": true,
+      "runOptions": {
+        "runOn": "folderOpen"
+      },
+      "presentation": {
+        "reveal": "silent",
+        "panel": "dedicated",
+        "group": "antigravity-mobile"
+      },
+      "problemMatcher": {
+        "owner": "antigravity-mobile",
+        "pattern": [
+          {
+            "regexp": "^(.*)$",
+            "file": 1,
+            "location": 1,
+            "message": 1
+          }
+        ],
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".*Server starting.*",
+          "endsPattern": ".*(HTTP server listening|Mobile UI:).*"
+        }
+      }
+    }
+  ]
+}

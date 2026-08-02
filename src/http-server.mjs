@@ -12,8 +12,9 @@
  */
 
 import express from 'express';
-import { networkInterfaces } from 'os';
+import { networkInterfaces, tmpdir } from 'os';
 import { createServer } from 'http';
+import { spawn } from 'child_process';
 import { WebSocketServer, WebSocket } from 'ws';
 import { join, dirname, extname, basename, resolve } from 'path';
 import { fileURLToPath } from 'url';
@@ -29,6 +30,9 @@ import * as TelegramBot from './telegram-bot.mjs';
 import * as Tunnel from './tunnel.mjs';
 import * as Supervisor from './supervisor-service.mjs';
 import * as OllamaClient from './ollama-client.mjs';
+import * as Git from './git-service.mjs';
+import * as HelperBridge from './helper-bridge.mjs';
+import * as Pairing from './pairing-service.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..');
@@ -95,7 +99,8 @@ function trackMetric(type) {
 // ============================================================================
 // Configuration
 // ============================================================================
-const HTTP_PORT = 3001;
+// HTTP + WebSocket share this single port. Default 5000; override via data/config.json -> server.port.
+const HTTP_PORT = Config.getConfig('server.port') || 5000;
 const DATA_DIR = join(PROJECT_ROOT, 'data');
 const UPLOADS_DIR = join(PROJECT_ROOT, 'uploads');
 const MESSAGES_FILE = join(DATA_DIR, 'messages.json');
@@ -138,6 +143,13 @@ async function promptForAuth() {
     // Skip prompt if not running in an interactive terminal
     if (!process.stdin.isTTY) {
         console.log('ℹ️ Non-interactive mode - auth disabled (set MOBILE_PIN env to enable)');
+        return;
+    }
+
+    // Explicitly skip the interactive prompt (used by the IDE auto-start task, whose
+    // pseudo-terminal can report isTTY=true and would otherwise hang on input).
+    if (process.env.MOBILE_SKIP_AUTH_PROMPT === '1') {
+        console.log('ℹ️ Auto-start mode - skipping auth prompt (set MOBILE_PIN env to enable auth)');
         return;
     }
 
@@ -199,6 +211,13 @@ const upload = multer({
     }
 });
 
+// Generic uploads (phone → PC): any file type, kept in memory then written into
+// the workspace by the /api/files/upload handler.
+const uploadAny = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 500 * 1024 * 1024 }, // 500MB
+});
+
 // Workspace path (will be set dynamically via IDE detection or default to parent folder)
 let workspacePath = join(PROJECT_ROOT, '..');
 Supervisor.setProjectRoot(workspacePath);
@@ -214,6 +233,8 @@ async function startWorkspacePolling() {
 
     const poll = async () => {
         try {
+            // The live screencast holds the 2.0 app's single CDP slot — skip while active.
+            if (CDP.isLiveActive()) return;
             let detectedPath = await CDP.getWorkspacePath();
 
             if (!detectedPath) {
@@ -261,8 +282,9 @@ async function startWorkspacePolling() {
     // Initial check
     await poll();
 
-    // Poll every 5 seconds
-    workspacePollingInterval = setInterval(poll, 5000);
+    // Poll every 20 seconds (kept low-frequency so it doesn't contend with the
+    // live-screen capture/input CDP connections).
+    workspacePollingInterval = setInterval(poll, 20000);
 }
 
 function stopWorkspacePolling() {
@@ -284,6 +306,10 @@ if (!existsSync(SCREENSHOTS_DIR)) mkdirSync(SCREENSHOTS_DIR, { recursive: true }
 let screenshotInterval = null;
 
 function startScreenshotScheduler() {
+    // Disabled: the mobile app now uses the live screencast view instead of a saved
+    // screenshot timeline. Auto-capture via Page.captureScreenshot also hangs on an
+    // idle window and competes with the screencast, so it stays off.
+    return;
     if (screenshotInterval) return;
     if (!Config.getConfig('scheduledScreenshots.enabled')) return;
     screenshotInterval = setInterval(async () => {
@@ -418,6 +444,10 @@ function broadcast(event, data) {
     });
 }
 
+// Push agent-status transitions (input needed / completed / error) to mobile
+// clients so the app can raise a local notification, even when backgrounded.
+ChatStream.setNotifyCallback((evt) => broadcast('agent_event', evt));
+
 // ============================================================================
 // HTTP Server
 // ============================================================================
@@ -494,7 +524,16 @@ app.post('/api/admin/rebuild-html', localhostOnly, (req, res) => {
 });
 
 // Static files (CSS/JS source files, images, manifest, etc.)
-app.use(express.static(join(PROJECT_ROOT, 'public')));
+// Disable caching for HTML/CSS/JS so the mobile WebView always loads the latest
+// UI (WebViews cache aggressively — stale chat.css/minimal.html caused "not
+// updating" symptoms). Other assets keep default caching.
+app.use(express.static(join(PROJECT_ROOT, 'public'), {
+    setHeaders: (res, path) => {
+        if (/\.(html|css|js)$/i.test(path)) {
+            res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+        }
+    },
+}));
 
 // CORS
 app.use((req, res, next) => {
@@ -616,6 +655,150 @@ function localhostOnly(req, res, next) {
 // Serve admin page
 app.get('/admin', localhostOnly, (req, res) => {
     res.sendFile(join(PROJECT_ROOT, 'public', 'admin.html'));
+});
+
+// ============================================================================
+// Setup wizard — first-run guide (localhost only, like the admin panel)
+// ============================================================================
+app.get('/setup', localhostOnly, (req, res) => {
+    res.sendFile(join(PROJECT_ROOT, 'public', 'setup.html'));
+});
+
+// Everything the wizard needs to show live progress in one call.
+app.get('/api/setup/status', localhostOnly, async (req, res) => {
+    // CDP reachable? (Antigravity running with --remote-debugging-port)
+    const cdpPort = Config.getConfig('devices')?.find(d => d.active)?.cdpPort || 9333;
+    let cdpActive = false;
+    try {
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(), 1500);
+        const r = await fetch(`http://127.0.0.1:${cdpPort}/json/version`, { signal: ctrl.signal });
+        clearTimeout(t);
+        cdpActive = r.ok;
+    } catch (e) { }
+
+    // Network: LAN + Tailscale (100.64.0.0/10 CGNAT range or adapter name)
+    let lanIP = null, tailscaleIP = null;
+    const nets = networkInterfaces();
+    for (const [name, entries] of Object.entries(nets)) {
+        for (const net of entries || []) {
+            if (net.family !== 'IPv4' || net.internal) continue;
+            const isTs = name.toLowerCase().includes('tailscale') || /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(net.address);
+            if (isTs && !tailscaleIP) tailscaleIP = net.address;
+            else if (net.address.startsWith('192.168.') && !net.address.endsWith('.1') && !lanIP) lanIP = net.address;
+        }
+    }
+
+    const helperExe = findHelperExe();
+
+    res.json({
+        platform: process.platform,
+        port: Config.getConfig('server.port') || 5000,
+        antigravity: { app: findAntigravityExe('app'), ide: findAntigravityExe('ide') },
+        cdp: { port: cdpPort, active: cdpActive },
+        helper: {
+            exeExists: !!helperExe, exePath: helperExe,
+            connected: HelperBridge.isConnected(), geometry: HelperBridge.getGeometry(),
+            cargoAvailable: await hasCargo(),
+            build: helperBuild,
+        },
+        network: { lanIP, tailscaleIP },
+        pairingCode: Pairing.getCode(),
+        pairedDevices: Pairing.listDevices().length,
+    });
+});
+
+// The helper exe, wherever a build left it (new name preferred, legacy accepted).
+function findHelperExe() {
+    const dir = join(PROJECT_ROOT, 'rust-helper', 'target', 'release');
+    const names = process.platform === 'win32'
+        ? ['desktop-helper.exe', 'rustdesk-helper.exe']
+        : ['desktop-helper', 'rustdesk-helper'];
+    for (const n of names) {
+        const p = join(dir, n);
+        if (existsSync(p)) return p;
+    }
+    return null;
+}
+
+let cargoChecked = null;
+async function hasCargo() {
+    if (cargoChecked !== null) return cargoChecked;
+    cargoChecked = await new Promise(r => {
+        const c = spawn(process.platform === 'win32' ? 'cargo.exe' : 'cargo', ['--version'], { shell: true, stdio: 'ignore' });
+        c.on('error', () => r(false));
+        c.on('exit', code => r(code === 0));
+    });
+    return cargoChecked;
+}
+
+// Set the Antigravity executable path by hand when auto-detection fails.
+// Persisted in config; findAntigravityExe honours it before the defaults.
+app.post('/api/setup/antigravity-path', localhostOnly, (req, res) => {
+    const p = String(req.body?.path || '').trim().replace(/^"|"$/g, '');
+    if (!p || !existsSync(p) || !statSync(p).isFile()) {
+        return res.status(400).json({ success: false, error: 'No file at that path. Paste the full path to Antigravity.exe.' });
+    }
+    Config.updateConfig('antigravityPath', p);
+    res.json({ success: true, path: p });
+});
+
+// Launch Antigravity with the CDP flag (no folder — restores last session).
+app.post('/api/setup/launch-antigravity', localhostOnly, (req, res) => {
+    const exe = findAntigravityExe('app') || findAntigravityExe('ide');
+    if (!exe) return res.status(404).json({ success: false, error: 'Antigravity not found — set the path above first.' });
+    const cdpPort = Config.getConfig('devices')?.find(d => d.active)?.cdpPort || 9333;
+    try {
+        spawn(exe, [`--remote-debugging-port=${cdpPort}`], { detached: true, stdio: 'ignore' }).unref();
+        res.json({ success: true, port: cdpPort });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+});
+
+// Build the desktop helper (cargo build --release), streaming progress into
+// an in-memory log the wizard polls via /api/setup/status.
+let helperBuild = { running: false, ok: null, log: [] };
+app.post('/api/setup/helper/build', localhostOnly, async (req, res) => {
+    if (helperBuild.running) return res.json({ success: true, alreadyRunning: true });
+    if (!(await hasCargo())) {
+        return res.status(400).json({ success: false, error: 'cargo_missing' });
+    }
+    helperBuild = { running: true, ok: null, log: ['$ cargo build --release'] };
+    const child = spawn('cargo', ['build', '--release'], {
+        cwd: join(PROJECT_ROOT, 'rust-helper'), shell: true,
+    });
+    const push = (chunk) => {
+        for (const line of chunk.toString().split(/\r?\n/)) {
+            if (!line.trim()) continue;
+            helperBuild.log.push(line);
+            if (helperBuild.log.length > 40) helperBuild.log.shift();
+        }
+    };
+    child.stdout.on('data', push);
+    child.stderr.on('data', push);
+    child.on('exit', code => {
+        helperBuild.running = false;
+        helperBuild.ok = code === 0;
+        helperBuild.log.push(code === 0 ? '✓ build finished' : `✗ build failed (exit ${code})`);
+        emitEvent(code === 0 ? 'success' : 'error', `Helper build ${code === 0 ? 'succeeded' : 'failed'}`);
+    });
+    child.on('error', e => {
+        helperBuild.running = false;
+        helperBuild.ok = false;
+        helperBuild.log.push(`✗ ${e.message}`);
+    });
+    res.json({ success: true });
+});
+
+// Start the built helper. It supervises the bridge, so it becomes the
+// top-level process; the bridge just waits for its WebSocket to appear.
+app.post('/api/setup/helper/start', localhostOnly, (req, res) => {
+    const exe = findHelperExe();
+    if (!exe) return res.status(404).json({ success: false, error: 'Helper not built yet.' });
+    if (HelperBridge.isConnected()) return res.json({ success: true, alreadyConnected: true });
+    try {
+        spawn(exe, [], { detached: true, stdio: 'ignore', cwd: PROJECT_ROOT }).unref();
+        res.json({ success: true });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
 });
 
 // Get config
@@ -927,6 +1110,40 @@ app.get('/api/admin/screenshots/:filename', localhostOnly, (req, res) => {
     const file = join(SCREENSHOTS_DIR, req.params.filename);
     if (!existsSync(file)) return res.status(404).json({ error: 'Not found' });
     res.set('Content-Type', 'image/jpeg');
+    res.send(readFileSync(file));
+});
+
+// ----------------------------------------------------------------------------
+// Mobile screenshot timeline (Tailscale-reachable, NOT localhost-only)
+// Mirrors the admin routes above so the Android companion can show the saved
+// scheduled-screenshot timeline. Security is provided by the Tailscale network.
+// ----------------------------------------------------------------------------
+app.get('/api/screenshots', (req, res) => {
+    try {
+        if (!existsSync(SCREENSHOTS_DIR)) return res.json({ screenshots: [] });
+        const files = readdirSync(SCREENSHOTS_DIR).filter(f => f.endsWith('.jpg')).sort().reverse();
+        const screenshots = files.slice(0, 100).map(f => {
+            const stats = statSync(join(SCREENSHOTS_DIR, f));
+            // Filename format: screenshot-YYYY-MM-DD-HH-MM-SS.jpg -> ISO-ish timestamp
+            const ts = f.replace('screenshot-', '').replace('.jpg', '')
+                .replace(/-/g, (m, i) => i < 10 ? '-' : i === 10 ? 'T' : ':').slice(0, 19);
+            return { filename: f, size: stats.size, timestamp: ts, url: `/api/screenshots/${f}` };
+        });
+        res.json({ screenshots });
+    } catch (e) { res.json({ screenshots: [], error: e.message }); }
+});
+
+// Serve a saved screenshot image to mobile (Tailscale-reachable)
+app.get('/api/screenshots/:filename', (req, res) => {
+    // Prevent path traversal: only allow the expected filename shape
+    const name = req.params.filename;
+    if (!/^screenshot-[\w-]+\.jpg$/.test(name)) {
+        return res.status(400).json({ error: 'Invalid filename' });
+    }
+    const file = join(SCREENSHOTS_DIR, name);
+    if (!existsSync(file)) return res.status(404).json({ error: 'Not found' });
+    res.set('Content-Type', 'image/jpeg');
+    res.set('Cache-Control', 'public, max-age=31536000, immutable');
     res.send(readFileSync(file));
 });
 
@@ -1425,6 +1642,86 @@ app.get('/api/chat/snapshot', async (req, res) => {
     }
 });
 
+// Structured chat snapshot (clean JSON model, rendered by mobile with our own CSS)
+app.get('/api/chat/structured', async (req, res) => {
+    try {
+        const model = await ChatStream.getStructuredSnapshot();
+        if (model) {
+            res.json(model);
+        } else {
+            res.status(503).json({ found: false, error: 'No chat found', messages: [] });
+        }
+    } catch (e) {
+        res.status(500).json({ found: false, error: e.message, messages: [] });
+    }
+});
+
+// List conversations (chat history) for the picker
+app.get('/api/chat/conversations', async (req, res) => {
+    try {
+        const conv = await ChatStream.getConversations();
+        if (conv) res.json(conv);
+        else res.status(503).json({ found: false, conversations: [] });
+    } catch (e) {
+        res.status(500).json({ found: false, error: e.message, conversations: [] });
+    }
+});
+
+// Switch to a conversation by id
+app.post('/api/chat/conversations/switch', async (req, res) => {
+    try {
+        const { id } = req.body || {};
+        if (!id) return res.status(400).json({ success: false, error: 'id required' });
+        const ok = await ChatStream.switchToConversation(id);
+        res.json({ success: ok, error: ok ? undefined : 'Conversation not found' });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// Start a new conversation
+app.post('/api/chat/conversations/new', async (req, res) => {
+    try {
+        const ok = await ChatStream.startNewConversation();
+        res.json({ success: ok, error: ok ? undefined : 'New Conversation button not found' });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// Answer a pending multiple-choice prompt from mobile.
+// body: { kind: 'option'|'other'|'skip', optionXpath?, text?, otherXpath?, submitXpath?, skipXpath? }
+app.post('/api/chat/answer', async (req, res) => {
+    try {
+        const { kind, optionXpath, text, otherXpath, submitXpath, skipXpath } = req.body || {};
+
+        if (kind === 'skip') {
+            if (!skipXpath) return res.status(400).json({ success: false, error: 'skipXpath required' });
+            const r = await CDP.clickElementByXPath(skipXpath);
+            return res.json(r);
+        }
+
+        if (kind === 'other') {
+            if (!otherXpath || !text) return res.status(400).json({ success: false, error: 'otherXpath and text required' });
+            const r = await CDP.fillAndSubmitByXPath(otherXpath, text, submitXpath || null);
+            return res.json(r);
+        }
+
+        // default: select a radio option, then submit
+        if (!optionXpath) return res.status(400).json({ success: false, error: 'optionXpath required' });
+        const sel = await CDP.clickElementByXPath(optionXpath);
+        if (!sel.success) return res.json(sel);
+        if (submitXpath) {
+            await new Promise(r => setTimeout(r, 200));
+            const sub = await CDP.clickElementByXPath(submitXpath);
+            return res.json(sub);
+        }
+        res.json(sel);
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
 // Start chat stream
 app.post('/api/chat/start', async (req, res) => {
     try {
@@ -1474,6 +1771,17 @@ app.get('/api/quota/status', async (req, res) => {
         res.json(status);
     } catch (e) {
         res.json({ available: false, error: e.message });
+    }
+});
+
+// Raw GetUserStatus payload (localhost only) — for discovering richer
+// weekly-usage fields beyond the per-model quotaInfo we currently parse.
+app.get('/api/quota/raw', localhostOnly, async (req, res) => {
+    try {
+        await QuotaService.getQuota(); // ensure a fresh fetch populated the cache
+        res.json(QuotaService.getRawUserStatus() || { error: 'No data yet' });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
     }
 });
 
@@ -1571,6 +1879,8 @@ app.post('/api/modes/set', async (req, res) => {
 // Get pending approvals
 app.get('/api/approvals', async (req, res) => {
     try {
+        // Don't open a competing CDP connection while the live screencast is active.
+        if (CDP.isLiveActive()) return res.json({ pending: false, count: 0, live: true });
         const result = await CDP.getPendingApprovals();
         res.json(result);
     } catch (e) {
@@ -1675,6 +1985,305 @@ app.post('/api/workspace/reset', async (req, res) => {
     } catch (e) {
         res.json({ success: false, workspace: workspacePath, error: e.message });
     }
+});
+
+// ============================================================================
+// Source toggle (Antigravity 2.0 app vs IDE) + live-screen tap-to-control
+// ============================================================================
+app.get('/api/cdp/sources', async (req, res) => {
+    try {
+        res.json(await CDP.getSources());
+    } catch (e) {
+        res.json({ sources: [], preference: 'auto', error: e.message });
+    }
+});
+
+app.post('/api/cdp/target', async (req, res) => {
+    try {
+        const { target } = req.body || {};
+        CDP.setCdpPreference(target);           // 'auto' | 'app' | 'ide' (forces rediscovery)
+        ChatStream.stopChatStream();            // drop old connection; re-binds to new source
+        broadcast('source_changed', { target: CDP.getCdpPreference() });
+        res.json(await CDP.getSources());
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Live screen as a lightweight JPEG — latest whole-desktop frame from the helper.
+app.get('/api/screen/live.jpg', async (req, res) => {
+    const frame = HelperBridge.getLatestFrame();
+    if (!frame) return res.status(503).json({ error: 'No frame yet (is desktop-helper running?)' });
+    res.set('Content-Type', 'image/jpeg');
+    res.set('Cache-Control', 'no-store');
+    res.send(frame);
+});
+
+// ============================================================================
+// Project pickers — browse the filesystem for a directory, then open it in the
+// Antigravity 2.0 app (new conversation in that project) or the IDE, each in a
+// new window with CDP so the Chat tab / source toggle can attach.
+// ============================================================================
+
+// Antigravity install discovery (mirrors the Rust helper).
+function findAntigravityExe(kind) {
+    const local = process.env.LOCALAPPDATA || '';
+    const pf = process.env.PROGRAMFILES || '';
+    const sub = kind === 'ide' ? 'Antigravity IDE' : 'Antigravity';
+    const exe = kind === 'ide' ? 'Antigravity IDE.exe' : 'Antigravity.exe';
+    const envOverride = kind === 'ide' ? process.env.ANTIGRAVITY_IDE_PATH : process.env.ANTIGRAVITY_PATH;
+    // A path saved via the setup wizard wins for the 2.0 app.
+    const configOverride = kind === 'ide' ? null : Config.getConfig('antigravityPath');
+    const candidates = [
+        configOverride,
+        envOverride,
+        join(local, 'Programs', sub, exe),
+        join(local, sub, exe),
+        join(pf, sub, exe),
+    ].filter(Boolean);
+    return candidates.find(p => existsSync(p)) || null;
+}
+
+// Windows drive roots (C:\, D:\, …) for the top of the directory picker.
+function listDrives() {
+    const drives = [];
+    for (let c = 67; c <= 90; c++) {
+        const root = `${String.fromCharCode(c)}:\\`;
+        if (existsSync(root)) drives.push({ name: root, path: root });
+    }
+    return drives;
+}
+
+// Browse directories anywhere on the machine (dirs only). No path => drive roots.
+app.get('/api/dirs', Pairing.requirePaired, (req, res) => {
+    try {
+        const p = req.query.path;
+        if (!p) return res.json({ path: null, parent: null, dirs: listDrives() });
+
+        const full = resolve(p);
+        if (!existsSync(full) || !statSync(full).isDirectory()) {
+            return res.status(404).json({ error: 'Not a directory' });
+        }
+        const dirs = readdirSync(full, { withFileTypes: true })
+            .filter(e => { try { return e.isDirectory(); } catch (x) { return false; } })
+            .filter(e => e.name !== 'node_modules' && e.name !== '$RECYCLE.BIN')
+            .map(e => ({ name: e.name, path: join(full, e.name) }))
+            .sort((a, b) => a.name.localeCompare(b.name));
+        const up = dirname(full);
+        const parent = up !== full ? up : null; // null at a drive root
+        res.json({ path: full, parent, dirs });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Launch a folder in the 2.0 app (new conversation) or the IDE, new window + CDP.
+function launchAntigravity(kind, dir, res) {
+    if (!dir || !existsSync(dir)) return res.status(400).json({ error: 'Folder does not exist' });
+    const exe = findAntigravityExe(kind);
+    if (!exe) return res.status(404).json({ error: `${kind === 'ide' ? 'Antigravity IDE' : 'Antigravity 2.0'} not found` });
+    const port = kind === 'ide' ? 9334 : 9333;
+    try {
+        spawn(exe, ['-n', dir, `--remote-debugging-port=${port}`], { detached: true, stdio: 'ignore' }).unref();
+        res.json({ success: true, opened: dir, port });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+}
+
+app.post('/api/launch/ide', Pairing.requirePaired, (req, res) =>
+    launchAntigravity('ide', req.body?.path, res));
+
+app.post('/api/launch/conversation', Pairing.requirePaired, (req, res) =>
+    launchAntigravity('app', req.body?.path, res));
+
+// --- One-time device pairing (K2) ---
+// Phone submits the code shown on the PC once; gets a token it stores and sends
+// as `x-device-token` on every input request.
+app.post('/api/pair', (req, res) => {
+    const { code, name } = req.body || {};
+    const token = Pairing.pair(String(code ?? ''), name || 'phone');
+    if (!token) return res.status(401).json({ error: 'invalid_code' });
+    res.json({ success: true, token });
+});
+
+// Whether the presented token is paired (phone shows paired/unpaired state).
+app.get('/api/pair/status', (req, res) => {
+    res.json({ paired: Pairing.isPaired(req.get('x-device-token')) });
+});
+
+// Tap-to-control. Coordinates are normalised (0..1) over the captured desktop;
+// the desktop helper (desktop-helper.exe) maps them to absolute pixels for enigo.
+// Full-desktop control replaces the old CDP/window + mouse_injector.py path.
+// All input routes require a paired device (full-PC-control gate).
+app.post('/api/screen/click', Pairing.requirePaired, async (req, res) => {
+    try {
+        const x = Number(req.body?.x), y = Number(req.body?.y);
+        const count = Number(req.body?.clickCount) || 1;
+        for (let i = 0; i < count; i++) {
+            HelperBridge.sendInput({ type: 'button', x, y, button: 'left', down: true });
+            HelperBridge.sendInput({ type: 'button', x, y, button: 'left', down: false });
+        }
+        res.json({ success: true });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+});
+
+// Switch the screen video codec: { codec: "h264" | "jpeg" }. The helper toggles
+// its capture encoder; the phone demuxes tagged frames either way.
+app.post('/api/screen/codec', Pairing.requirePaired, (req, res) => {
+    try {
+        const codec = req.body?.codec === 'h264' ? 'h264' : 'jpeg';
+        const ok = HelperBridge.sendInput({ type: 'video', codec });
+        if (!ok) return res.status(503).json({ success: false, error: 'helper not connected' });
+        res.json({ success: true, codec });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+});
+
+app.post('/api/screen/type', Pairing.requirePaired, async (req, res) => {
+    try {
+        const ok = HelperBridge.sendInput({ type: 'text', text: String(req.body?.text ?? '') });
+        if (!ok) return res.status(503).json({ success: false, error: 'helper not connected' });
+        res.json({ success: true });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+});
+
+app.post('/api/screen/key', Pairing.requirePaired, async (req, res) => {
+    try {
+        const { key, ctrl, alt, shift, meta } = req.body || {};
+        const ok = HelperBridge.sendKeyPress(String(key ?? ''), { ctrl, alt, shift, meta });
+        if (!ok) return res.status(503).json({ success: false, error: 'helper not connected' });
+        res.json({ success: true });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+});
+
+app.post('/api/screen/scroll', Pairing.requirePaired, async (req, res) => {
+    try {
+        const { x, y, deltaY } = req.body || {};
+        HelperBridge.sendInput({
+            type: 'scroll',
+            x: x !== undefined ? Number(x) : 0.5,
+            y: y !== undefined ? Number(y) : 0.5,
+            dx: 0, dy: Number(deltaY) || 0,
+        });
+        res.json({ success: true });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+});
+
+app.post('/api/screen/mouse', Pairing.requirePaired, async (req, res) => {
+    try {
+        const { type, x, y, dx, dy, button } = req.body || {};
+        const nx = Number(x), ny = Number(y);
+        if (type === 'mouseMoved') {
+            HelperBridge.sendInput({ type: 'move', x: nx, y: ny });
+        } else if (type === 'mousePressed') {
+            HelperBridge.sendInput({ type: 'button', x: nx, y: ny, button: button || 'left', down: true });
+        } else if (type === 'mouseReleased') {
+            HelperBridge.sendInput({ type: 'button', x: nx, y: ny, button: button || 'left', down: false });
+        }
+        res.json({ success: true });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+});
+
+// ============================================================================
+// Repository selection — saved list of repo roots; selecting one sets workspace
+// ============================================================================
+function setWorkspace(path) {
+    workspacePath = path;
+    Supervisor.setProjectRoot(workspacePath);
+    broadcast('workspace_changed', { path: workspacePath, projectName: basename(workspacePath) });
+}
+
+app.get('/api/repos', async (req, res) => {
+    const repos = Config.getConfig('repos') || [];
+    const withMeta = [];
+    for (const p of repos) {
+        withMeta.push({ path: p, name: basename(p), exists: existsSync(p), isRepo: existsSync(p) ? await Git.isRepo(p) : false });
+    }
+    res.json({ repos: withMeta, current: workspacePath, currentName: basename(workspacePath) });
+});
+
+app.post('/api/repos', (req, res) => {
+    const { path } = req.body || {};
+    if (!path || !existsSync(path)) return res.status(400).json({ error: 'Path does not exist' });
+    const repos = Config.getConfig('repos') || [];
+    if (!repos.includes(path)) repos.push(path);
+    Config.updateConfig('repos', repos);
+    res.json({ success: true, repos });
+});
+
+app.delete('/api/repos', (req, res) => {
+    const { path } = req.body || {};
+    const repos = (Config.getConfig('repos') || []).filter(p => p !== path);
+    Config.updateConfig('repos', repos);
+    res.json({ success: true, repos });
+});
+
+app.post('/api/repos/select', (req, res) => {
+    const { path } = req.body || {};
+    if (!path || !existsSync(path)) return res.status(400).json({ error: 'Path does not exist' });
+    // Remember it too, so selecting a fresh path also adds it to the list.
+    const repos = Config.getConfig('repos') || [];
+    if (!repos.includes(path)) { repos.push(path); Config.updateConfig('repos', repos); }
+    setWorkspace(path);
+    res.json({ success: true, workspace: workspacePath });
+});
+
+// ============================================================================
+// Git endpoints (operate on ?path= or the current workspace). No push.
+// ============================================================================
+function gitDir(req) {
+    return (req.query?.path || req.body?.path || workspacePath);
+}
+
+app.get('/api/git/status', async (req, res) => {
+    try {
+        res.json(await Git.status(gitDir(req)));
+    } catch (e) {
+        res.status(500).json({ isRepo: false, error: e.message, files: [] });
+    }
+});
+
+app.get('/api/git/diff', async (req, res) => {
+    try {
+        const file = req.query.file;
+        if (!file) return res.status(400).json({ error: 'file required' });
+        res.json(await Git.diff(gitDir(req), file, req.query.staged === '1' || req.query.staged === 'true'));
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get('/api/git/branches', async (req, res) => {
+    try {
+        res.json(await Git.branches(gitDir(req)));
+    } catch (e) {
+        res.status(500).json({ current: null, branches: [], error: e.message });
+    }
+});
+
+app.post('/api/git/stage', async (req, res) => {
+    try { res.json(await Git.stage(gitDir(req), req.body.file)); }
+    catch (e) { res.status(500).json({ success: false, error: e.message }); }
+});
+
+app.post('/api/git/unstage', async (req, res) => {
+    try { res.json(await Git.unstage(gitDir(req), req.body.file)); }
+    catch (e) { res.status(500).json({ success: false, error: e.message }); }
+});
+
+app.post('/api/git/discard', async (req, res) => {
+    try { res.json(await Git.discard(gitDir(req), req.body.file, !!req.body.untracked)); }
+    catch (e) { res.status(500).json({ success: false, error: e.message }); }
+});
+
+app.post('/api/git/commit', async (req, res) => {
+    try { res.json(await Git.commit(gitDir(req), req.body.message)); }
+    catch (e) { res.status(500).json({ success: false, error: e.message }); }
+});
+
+app.post('/api/git/checkout', async (req, res) => {
+    try { res.json(await Git.checkout(gitDir(req), req.body.branch, !!req.body.create)); }
+    catch (e) { res.status(500).json({ success: false, error: e.message }); }
 });
 
 // List files in directory
@@ -1892,6 +2501,131 @@ app.get('/api/files/raw', (req, res) => {
     }
 });
 
+// Download a single file (any type) to the mobile device.
+app.get('/api/files/download', (req, res) => {
+    try {
+        const filePath = req.query.path;
+        if (!filePath) return res.status(400).json({ error: 'Path required' });
+
+        const resolvedPath = resolve(filePath);
+        const workspaceRoot = resolve(workspacePath);
+        if (!pathStartsWith(resolvedPath, workspaceRoot)) {
+            return res.status(403).json({ error: 'Access denied - outside workspace' });
+        }
+        if (!existsSync(resolvedPath)) return res.status(404).json({ error: 'File not found' });
+        if (statSync(resolvedPath).isDirectory()) {
+            return res.status(400).json({ error: 'Path is a folder — use /api/files/download-zip' });
+        }
+        res.download(resolvedPath, basename(resolvedPath));
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Upload files from the phone into the workspace (any type, multiple at once).
+app.post('/api/files/upload', uploadAny.array('files'), (req, res) => {
+    try {
+        const files = req.files || [];
+        if (files.length === 0) return res.status(400).json({ error: 'No files uploaded' });
+
+        const targetDir = resolve(req.body?.dir || workspacePath);
+        const workspaceRoot = resolve(workspacePath);
+        if (!pathStartsWith(targetDir, workspaceRoot)) {
+            return res.status(403).json({ error: 'Access denied - outside workspace' });
+        }
+        if (!existsSync(targetDir) || !statSync(targetDir).isDirectory()) {
+            return res.status(400).json({ error: 'Target folder does not exist' });
+        }
+
+        const saved = [];
+        for (const f of files) {
+            // basename() strips any path components in the supplied name (no traversal).
+            const name = basename(f.originalname || 'upload.bin');
+            const dest = join(targetDir, name);
+            if (!pathStartsWith(resolve(dest), workspaceRoot)) continue;
+            writeFileSync(dest, f.buffer);
+            saved.push(name);
+        }
+        res.json({ success: true, saved, dir: targetDir });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Clipboard sync (phone <-> PC) via PowerShell Get/Set-Clipboard.
+app.get('/api/clipboard', (req, res) => {
+    try {
+        const child = spawn('powershell', ['-NoProfile', '-NonInteractive', '-Command', 'Get-Clipboard -Raw']);
+        let out = '';
+        child.stdout.on('data', d => { out += d.toString(); });
+        child.on('close', () => res.json({ text: out.replace(/\r\n$/, '') }));
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/clipboard', (req, res) => {
+    try {
+        const text = String(req.body?.text ?? '');
+        // Pass the text via env to avoid any quoting/escaping issues.
+        const child = spawn('powershell', ['-NoProfile', '-NonInteractive', '-Command', 'Set-Clipboard -Value $env:AGCLIP'], {
+            env: { ...process.env, AGCLIP: text },
+        });
+        child.on('close', (code) => {
+            if (code === 0) res.json({ success: true });
+            else res.status(500).json({ success: false, error: `exit ${code}` });
+        });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Download multiple files and/or folders as a single ZIP. Built with PowerShell
+// Compress-Archive so no extra npm dependency is needed (the bridge is Windows).
+app.post('/api/files/download-zip', (req, res) => {
+    try {
+        const paths = Array.isArray(req.body?.paths) ? req.body.paths : [];
+        if (paths.length === 0) return res.status(400).json({ error: 'No paths provided' });
+
+        const workspaceRoot = resolve(workspacePath);
+        const resolved = [];
+        for (const p of paths) {
+            const rp = resolve(p);
+            if (!pathStartsWith(rp, workspaceRoot)) {
+                return res.status(403).json({ error: 'Access denied - outside workspace' });
+            }
+            if (!existsSync(rp)) return res.status(404).json({ error: `Not found: ${p}` });
+            resolved.push(rp);
+        }
+
+        const stamp = Date.now().toString(36) + randomBytes(3).toString('hex');
+        const listFile = join(tmpdir(), `agz-list-${stamp}.txt`);
+        const zipFile = join(tmpdir(), `agz-${stamp}.zip`);
+        writeFileSync(listFile, resolved.join('\n'), 'utf-8');
+
+        // Read the path list from a file + pass output path via env to avoid any
+        // command-injection / quoting issues with spaces or special characters.
+        const ps = "$ErrorActionPreference='Stop'; " +
+            "$items = Get-Content -LiteralPath $env:AGZ_LIST; " +
+            "Compress-Archive -LiteralPath $items -DestinationPath $env:AGZ_OUT -Force";
+        const child = spawn('powershell', ['-NoProfile', '-NonInteractive', '-Command', ps], {
+            env: { ...process.env, AGZ_LIST: listFile, AGZ_OUT: zipFile },
+        });
+        let errOut = '';
+        child.stderr.on('data', d => { errOut += d.toString(); });
+        child.on('close', (code) => {
+            try { unlinkSync(listFile); } catch (e) { /* best effort */ }
+            if (code !== 0 || !existsSync(zipFile)) {
+                return res.status(500).json({ error: 'Failed to create archive: ' + (errOut.slice(0, 200) || `exit ${code}`) });
+            }
+            const zipName = (resolved.length === 1 ? basename(resolved[0]) : `antigravity-files-${resolved.length}`) + '.zip';
+            res.download(zipFile, zipName, () => { try { unlinkSync(zipFile); } catch (e) { /* best effort */ } });
+        });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // ============================================================================
 // Message Endpoints
 // ============================================================================
@@ -1984,6 +2718,11 @@ wss.on('connection', (ws) => {
         ts: new Date().toISOString()
     }));
 
+    // Paint the latest desktop frame right away (helper streams on-change, so an
+    // idle desktop would otherwise show nothing until the next change).
+    const latestFrame = HelperBridge.getLatestFrame();
+    if (latestFrame) ws.send(latestFrame);
+
     // Handle messages from mobile
     ws.on('message', async (data) => {
         try {
@@ -1997,6 +2736,12 @@ wss.on('connection', (ws) => {
                 // Request screenshot
                 const base64 = await CDP.captureScreenshot();
                 ws.send(JSON.stringify({ event: 'screenshot', data: { image: base64 } }));
+            } else if (msg.action === 'watch_screen') {
+                // The helper streams continuously; just push the latest cached
+                // frame so an idle desktop paints instantly instead of waiting
+                // for the next DXGI change.
+                const latest = HelperBridge.getLatestFrame();
+                if (latest && ws.readyState === WebSocket.OPEN) ws.send(latest);
             }
         } catch (e) {
             ws.send(JSON.stringify({ event: 'error', data: { message: e.message } }));
@@ -2009,12 +2754,26 @@ wss.on('connection', (ws) => {
     });
 });
 
+// Broadcast binary frames from the Rust helper (whole-desktop capture) to the
+// connected phone WS clients. Replaces the CDP single-window screencast.
+HelperBridge.helperEvents.on('frame', (buf) => {
+    for (const ws of clients) {
+        if (ws.readyState === WebSocket.OPEN) {
+            ws.send(buf);
+        }
+    }
+});
+HelperBridge.start();
+
 // ============================================================================
 // Start
 // ============================================================================
 async function startServer() {
     // Prompt for authentication setup
     await promptForAuth();
+
+    // One-time device pairing (gates full-PC input injection). Prints the code.
+    Pairing.init();
 
     // Set active CDP device from config
     const devices = Config.getConfig('devices') || [];

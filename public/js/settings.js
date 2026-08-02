@@ -69,11 +69,12 @@
         let quotaData = null;
         let quotaLoading = false;
 
-        async function loadQuota() {
+        async function loadQuota(containerId = 'quotaContainer') {
             if (quotaLoading) return;
             quotaLoading = true;
 
-            const container = document.getElementById('quotaContainer');
+            const container = document.getElementById(containerId);
+            if (!container) { quotaLoading = false; return; }
             container.innerHTML = `
                     <div class="quota-loading">
                         <div class="spinner"></div>
@@ -85,7 +86,7 @@
                 const res = await authFetch(`${serverUrl}/api/quota`);
                 const data = await res.json();
                 quotaData = data;
-                renderQuota(data);
+                renderQuota(data, containerId);
             } catch (e) {
                 container.innerHTML = `
                         <div class="quota-error">
@@ -99,8 +100,9 @@
             }
         }
 
-        function renderQuota(data) {
-            const container = document.getElementById('quotaContainer');
+        function renderQuota(data, containerId = 'quotaContainer') {
+            const container = document.getElementById(containerId);
+            if (!container) return;
 
             if (!data.available || !data.models || data.models.length === 0) {
                 container.innerHTML = `
@@ -115,10 +117,25 @@
 
             const circumference = 2 * Math.PI * 34; // radius = 34
 
+            // Weekly usage summary — consumed this period + when the quota resets.
+            const w = data.weekly || {};
+            const weekUsed = Math.max(0, Math.min(100, Math.round(w.usedPercent || 0)));
+            const weeklyHtml = `
+                    <div class="quota-week">
+                        <div class="quota-week-row">
+                            <span class="quota-week-label">Weekly usage</span>
+                            <span class="quota-week-value">${weekUsed}% used${w.resetIn ? ` · resets in ${w.resetIn}` : ''}</span>
+                        </div>
+                        <div class="quota-week-bar"><span style="width:${weekUsed}%"></span></div>
+                    </div>
+                `;
+
             container.innerHTML = `
+                    ${weeklyHtml}
                     <div class="quota-grid">
                         ${data.models.map(model => {
                 const percent = Math.max(0, Math.min(100, model.remainingPercent || 0));
+                const used = (model.usedPercent != null) ? model.usedPercent : (100 - percent);
                 const offset = circumference - (percent / 100) * circumference;
                 const displayName = formatModelName(model.name);
                 const statusLabel = getStatusLabel(model.status);
@@ -128,7 +145,7 @@
                                     <div class="quota-ring">
                                         <svg viewBox="0 0 80 80">
                                             <circle class="ring-bg" cx="40" cy="40" r="34"></circle>
-                                            <circle class="ring-progress ${model.status}" 
+                                            <circle class="ring-progress ${model.status}"
                                                 cx="40" cy="40" r="34"
                                                 stroke-dasharray="${circumference}"
                                                 stroke-dashoffset="${offset}">
@@ -138,7 +155,7 @@
                                     </div>
                                     <div class="quota-model-name" title="${model.name}">${displayName}</div>
                                     <div class="quota-reset">
-                                        ${model.resetIn ? `Reset: ${model.resetIn}` : ''}
+                                        ${Math.round(used)}% used this week${model.resetIn ? ` · resets ${model.resetIn}` : ''}
                                     </div>
                                     <span class="quota-status-badge ${model.status}">${statusLabel}</span>
                                 </div>

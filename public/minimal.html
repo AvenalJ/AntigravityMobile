@@ -3,30 +3,49 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Antigravity - Lite</title>
     <link rel="icon"
-        href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
+        href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22><path d=%22M13 2 4 14h6l-1 8 10-12h-7z%22 fill=%22%233DD6B6%22/></svg>">
+    <!-- Structured chat renderer styles (.sc-*) shared with the full dashboard -->
+    <link rel="stylesheet" href="/css/chat.css">
     <style>
         :root {
-            --bg-dark: #050508;
-            --bg-card: rgba(15, 15, 25, 0.8);
-            --accent-primary: #8b5cf6;
-            --text-primary: #ffffff;
-            --text-secondary: rgba(255, 255, 255, 0.7);
-            --text-muted: rgba(255, 255, 255, 0.4);
-            --border: rgba(255, 255, 255, 0.08);
-            --success: #22c55e;
-            --error: #ef4444;
+            /* Palette mirrors the native app theme (teal accent + dark-green
+               neutral surfaces) so the chat looks like the rest of the app. */
+            --bg-dark: #0F1413;
+            --bg-primary: #0F1413;
+            --bg-card: #151B1A;
+            --bg-sidebar: #0C100F;
+            --bg-glass: rgba(255, 255, 255, 0.05);
+            --bg-bubble: #1E2624;
+            --accent-primary: #3DD6B6;
+            --accent-strong: #2BB89B;
+            --accent-glow: rgba(61, 214, 182, 0.18);
+            --on-accent: #002019;
+            --text-primary: #E6ECEA;
+            --text-secondary: #A9B4B1;
+            --text-muted: rgba(169, 180, 177, 0.55);
+            --border: #2C3633;
+            --success: #2FB36B;
+            --error: #E5534B;
         }
 
         .light-theme {
-            --bg-dark: #f5f5f7;
-            --bg-card: rgba(255, 255, 255, 0.9);
-            --text-primary: #1a1a1a;
-            --text-secondary: rgba(0, 0, 0, 0.7);
-            --text-muted: rgba(0, 0, 0, 0.4);
-            --border: rgba(0, 0, 0, 0.1);
+            --bg-dark: #FBFCFC;
+            --bg-primary: #FBFCFC;
+            --bg-card: #FFFFFF;
+            --bg-sidebar: #F2F5F4;
+            --bg-glass: rgba(0, 0, 0, 0.04);
+            --bg-bubble: #EAEFED;
+            --accent-primary: #1E8F79;
+            --accent-strong: #2BB89B;
+            --accent-glow: rgba(30, 143, 121, 0.15);
+            --on-accent: #FFFFFF;
+            --text-primary: #12201D;
+            --text-secondary: #49544F;
+            --text-muted: rgba(73, 84, 79, 0.55);
+            --border: #C8D2CF;
         }
 
         * {
@@ -45,94 +64,166 @@
             overflow: hidden;
         }
 
-        /* Header */
-        .header {
+        /* App shell: sidebar drawer + main */
+        .app-shell {
+            flex: 1;
             display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 12px 16px;
-            background: var(--bg-card);
-            border-bottom: 1px solid var(--border);
-            position: sticky;
-            top: 0;
-            z-index: 100;
+            min-height: 0;
+            position: relative;
         }
 
-        .header-left {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .logo {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .logo-icon {
-            font-size: 24px;
-        }
-
+        .logo { display: flex; align-items: center; gap: 8px; }
+        .logo-icon { font-size: 22px; }
         .logo-text {
-            font-size: 16px;
+            font-size: 15px;
             font-weight: 700;
-            background: linear-gradient(135deg, var(--accent-primary), #6366f1);
+            background: var(--accent-primary);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
         }
 
-        .status-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: var(--error);
-        }
-
-        .status-dot.connected {
-            background: var(--success);
-            box-shadow: 0 0 8px var(--success);
-        }
-
-        .header-right {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
+        .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--error); flex-shrink: 0; }
+        .status-dot.connected { background: var(--success); box-shadow: 0 0 8px var(--success); }
 
         .icon-btn {
-            width: 36px;
-            height: 36px;
+            width: 34px; height: 34px;
             border: none;
-            background: rgba(255, 255, 255, 0.05);
+            background: transparent;
             color: var(--text-secondary);
-            border-radius: 10px;
+            border-radius: 8px;
             font-size: 16px;
             cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+            transition: all 0.15s;
+            flex-shrink: 0;
+        }
+        .icon-btn:hover { background: var(--bg-glass); color: var(--text-primary); }
+        .icon-btn.active { background: var(--accent-glow); color: var(--accent-primary); }
+
+        /* "Hide thinking" — collapse the granular chain-of-thought step timeline,
+           leaving the "Worked for…" summary and the agent's answer ("big thoughts"). */
+        .hide-cot .sc-steps { display: none; }
+        .hide-cot .sc-worked { margin: 0; }
+
+        /* Sidebar (drawer) */
+        .sidebar {
+            width: 280px;
+            background: var(--bg-sidebar);
+            border-right: 1px solid var(--border);
             display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: all 0.2s;
+            flex-direction: column;
+            flex-shrink: 0;
+            transition: transform 0.22s ease;
+            z-index: 200;
         }
 
-        .icon-btn:hover {
-            background: rgba(139, 92, 246, 0.2);
-            color: var(--accent-primary);
+        .sidebar-head {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 14px 14px 10px;
         }
+        .sidebar-head .icon-btn { display: none; } /* close button: mobile only */
 
-        .full-mode-link {
+        .new-convo-btn {
+            margin: 0 12px 12px;
+            padding: 11px 14px;
+            display: flex; align-items: center; gap: 8px;
+            background: var(--bg-glass);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            color: var(--text-primary);
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .new-convo-btn:hover { border-color: var(--accent-primary); background: var(--accent-glow); }
+        .new-convo-btn .plus { font-size: 17px; color: var(--accent-primary); }
+
+        .sidebar-section-label {
+            padding: 4px 16px 6px;
             font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: var(--text-muted);
+            font-weight: 600;
+        }
+        .sidebar-section-label span { opacity: 0.7; }
+
+        .sidebar .convo-search {
+            margin: 0 12px 8px;
+            padding: 9px 12px;
+            background: var(--bg-glass);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-size: 13px;
+            outline: none;
+        }
+        .sidebar .convo-search:focus { border-color: var(--accent-primary); }
+
+        .sidebar .convo-list { flex: 1; overflow-y: auto; padding: 0 8px 8px; -webkit-overflow-scrolling: touch; }
+
+        .convo-item {
+            padding: 9px 12px;
+            border-radius: 8px;
+            font-size: 13.5px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            margin-bottom: 1px;
+        }
+        .convo-item:hover { background: var(--bg-glass); color: var(--text-primary); }
+        .convo-item.active { color: var(--text-primary); font-weight: 600; background: var(--bg-glass); box-shadow: inset 2px 0 0 var(--accent-primary); }
+        .convo-empty { padding: 16px; text-align: center; color: var(--text-muted); font-size: 13px; }
+
+        .sidebar-foot-link {
+            padding: 12px 16px;
+            font-size: 12px;
             color: var(--text-muted);
             text-decoration: none;
-            padding: 6px 10px;
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 8px;
-            transition: all 0.2s;
+            border-top: 1px solid var(--border);
+        }
+        .sidebar-foot-link:hover { color: var(--accent-primary); }
+
+        .sidebar-backdrop {
+            display: none;
+            position: absolute; inset: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 150;
         }
 
-        .full-mode-link:hover {
-            background: rgba(139, 92, 246, 0.2);
-            color: var(--accent-primary);
+        /* Main column */
+        .main { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+
+        .topbar {
+            display: flex; align-items: center; gap: 10px;
+            padding: 10px 14px;
+            padding-top: calc(10px + env(safe-area-inset-top));
+            background: var(--bg-card);
+            border-bottom: 1px solid var(--border);
+            flex-shrink: 0;
+        }
+        .icon-btn svg { display: block; }
+        .sidebar { padding-top: env(safe-area-inset-top); }
+        .topbar-title { font-size: 15px; font-weight: 600; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 60%; }
+        .topbar-spacer { flex: 1; }
+
+        /* Desktop: sidebar always visible, hide hamburger + backdrop */
+        @media (min-width: 820px) {
+            #sidebarToggle { display: none; }
+            .sidebar-backdrop { display: none !important; }
+        }
+
+        /* Mobile/narrow: sidebar is an overlay drawer */
+        @media (max-width: 819px) {
+            .sidebar {
+                position: absolute; top: 0; bottom: 0; left: 0;
+                transform: translateX(-100%);
+                box-shadow: 4px 0 24px rgba(0,0,0,0.5);
+            }
+            .app-shell.sidebar-open .sidebar { transform: translateX(0); }
+            .app-shell.sidebar-open .sidebar-backdrop { display: block; }
+            .sidebar-head .icon-btn { display: flex; }
         }
 
         /* Login Screen */
@@ -196,7 +287,7 @@
         .login-btn {
             width: 200px;
             padding: 14px;
-            background: linear-gradient(135deg, var(--accent-primary), #6366f1);
+            background: var(--accent-primary);
             border: none;
             border-radius: 12px;
             color: white;
@@ -222,7 +313,7 @@
         .cascade-view {
             flex: 1;
             overflow-y: auto;
-            padding: 16px;
+            padding: 18px 16px 10px;
             min-height: 0;
             -webkit-overflow-scrolling: touch;
         }
@@ -245,17 +336,17 @@
         }
 
         .chat-empty .icon {
-            font-size: 40px;
             opacity: 0.5;
+            display: flex;
         }
 
         /* Input Area - Stays at bottom via flex */
         .input-area {
             padding: 12px 16px;
+            padding-bottom: calc(12px + env(safe-area-inset-bottom));
             background: var(--bg-card);
             border-top: 1px solid var(--border);
             flex-shrink: 0;
-            /* Don't shrink, stay at natural height */
         }
 
         .quick-chips {
@@ -268,7 +359,7 @@
 
         .quick-chip {
             padding: 6px 14px;
-            background: rgba(255, 255, 255, 0.05);
+            background: var(--bg-glass);
             border: 1px solid var(--border);
             border-radius: 20px;
             color: var(--text-secondary);
@@ -279,8 +370,8 @@
         }
 
         .quick-chip:hover {
-            background: rgba(139, 92, 246, 0.15);
-            border-color: rgba(139, 92, 246, 0.4);
+            background: var(--accent-glow);
+            border-color: var(--accent-primary);
             color: var(--accent-primary);
         }
 
@@ -292,7 +383,7 @@
         .chat-input {
             flex: 1;
             padding: 12px 16px;
-            background: rgba(255, 255, 255, 0.05);
+            background: var(--bg-glass);
             border: 1px solid var(--border);
             border-radius: 24px;
             color: var(--text-primary);
@@ -312,7 +403,7 @@
             width: 44px;
             height: 44px;
             border: none;
-            background: linear-gradient(135deg, var(--accent-primary), #6366f1);
+            background: var(--accent-primary);
             border-radius: 50%;
             color: white;
             font-size: 18px;
@@ -321,6 +412,20 @@
             align-items: center;
             justify-content: center;
         }
+
+        /* Desktop-style overrides for the structured renderer */
+        .sc-user { align-items: flex-end; }
+        .sc-user .sc-bubble {
+            background: var(--bg-bubble);
+            color: var(--text-primary);
+            border-radius: 16px 16px 4px 16px;
+            max-width: 86%;
+        }
+        .sc-prose { color: var(--text-primary); }
+        .sc-changes .ic, .sc-step-ico { color: var(--text-muted); }
+        .send-btn svg { color: var(--on-accent); }
+        .send-btn { color: var(--on-accent); }
+        .sc-action-accept { color: var(--on-accent); }
 
         /* Toast */
         .toast-container {
@@ -423,8 +528,7 @@
         .remote-prompt-item {
             font-size: 13px;
             color: var(--text-secondary);
-            background: rgba(255, 255, 255, 0.05);
-            /* Same as --bg-glass */
+            background: var(--bg-glass);
             padding: 8px 12px;
             border-radius: 8px;
             border: 1px solid var(--border);
@@ -438,7 +542,7 @@
         .remote-prompt-item:last-child {
             color: var(--text-primary);
             border-color: var(--accent-primary);
-            background: rgba(14, 165, 233, 0.1);
+            background: var(--accent-glow);
         }
 
         @keyframes slideInUp {
@@ -635,7 +739,7 @@
     <!-- Login Screen -->
     <div class="login-screen hidden" id="loginScreen">
         <div class="login-card">
-            <div class="login-logo">🔐</div>
+            <div class="login-logo"><svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="var(--accent-primary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
             <div class="login-title">Enter PIN</div>
             <div class="login-subtitle">Authentication required</div>
             <input type="tel" class="pin-input" id="pinInput" maxlength="6" placeholder="••••" autocomplete="off">
@@ -644,45 +748,66 @@
         </div>
     </div>
 
-    <!-- Header -->
-    <header class="header">
-        <div class="header-left">
-            <div class="logo">
-                <span class="logo-icon">⚡</span>
-                <span class="logo-text">Antigravity</span>
-            </div>
-            <div class="status-dot" id="statusDot"></div>
-        </div>
-        <div class="header-right">
-            <button class="icon-btn" id="themeToggle" onclick="toggleTheme()">🌙</button>
-            <a href="/" class="full-mode-link">Dashboard →</a>
-        </div>
-    </header>
+    <!-- App shell: collapsible sidebar drawer + main chat (desktop-style) -->
+    <div class="app-shell">
 
-    <!-- Chat Container -->
-    <div class="chat-container">
-        <div class="cascade-view" id="cascade-container">
-            <div class="chat-empty">
-                <span class="icon">💬</span>
-                <span>Connecting to Antigravity...</span>
-            </div>
-        </div>
+        <!-- Sidebar backdrop (mobile drawer) -->
+        <div class="sidebar-backdrop" id="sidebarBackdrop" onclick="closeSidebar()"></div>
 
-        <!-- Remote Prompt History -->
-        <div id="remotePrompts" class="remote-prompts-container"></div>
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-head">
+                <div class="logo">
+                    <span class="logo-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="var(--accent-primary)"><path d="M13 2 4 14h6l-1 8 10-12h-7z"/></svg></span>
+                    <span class="logo-text">Antigravity</span>
+                </div>
+                <button class="icon-btn" onclick="closeSidebar()" title="Close"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+            </div>
+            <button class="new-convo-btn" onclick="newConversation()">
+                <span class="plus"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></span> New Conversation
+            </button>
+            <div class="sidebar-section-label">Conversation History <span id="convoCount"></span></div>
+            <input type="text" class="convo-search" id="convoSearch" placeholder="Search…" oninput="renderConvoList()">
+            <div class="convo-list" id="convoList">
+                <div class="convo-empty">Loading…</div>
+            </div>
+            <a href="/" class="sidebar-foot-link">Full Dashboard <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M5 12h14M12 5l7 7-7 7"/></svg></a>
+        </aside>
 
-        <div class="input-area">
-            <div class="quick-chips">
-                <button class="quick-chip" onclick="sendQuick('continue')">Continue</button>
-                <button class="quick-chip" onclick="sendQuick('yes')">Yes</button>
-                <button class="quick-chip" onclick="sendQuick('no')">No</button>
+        <!-- Main chat -->
+        <main class="main">
+            <header class="topbar">
+                <button class="icon-btn" id="sidebarToggle" onclick="openSidebar()" title="Conversations"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
+                <div class="topbar-title" id="convoTitle">Antigravity</div>
+                <div class="status-dot" id="statusDot"></div>
+                <div class="topbar-spacer"></div>
+                <button class="icon-btn" id="cotToggle" onclick="toggleCot()" title="Hide thinking steps"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.1h6c0-.8.4-1.6 1-2.1A7 7 0 0 0 12 2z"/></svg></button>
+                <button class="icon-btn" id="themeToggle" onclick="toggleTheme()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></button>
+            </header>
+
+            <div class="cascade-view" id="cascade-container">
+                <div class="chat-empty">
+                    <span class="icon"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>
+                    <span>Connecting to Antigravity...</span>
+                </div>
             </div>
-            <div class="input-row">
-                <input type="text" class="chat-input" id="chatInput" placeholder="Send a message..."
-                    onkeypress="if(event.key==='Enter')sendMessage()">
-                <button class="send-btn" onclick="sendMessage()">➤</button>
+
+            <!-- Remote Prompt History -->
+            <div id="remotePrompts" class="remote-prompts-container"></div>
+
+            <div class="input-area">
+                <div class="quick-chips">
+                    <button class="quick-chip" onclick="sendQuick('continue')">Continue</button>
+                    <button class="quick-chip" onclick="sendQuick('yes')">Yes</button>
+                    <button class="quick-chip" onclick="sendQuick('no')">No</button>
+                </div>
+                <div class="input-row">
+                    <input type="text" class="chat-input" id="chatInput" placeholder="Send a message..."
+                        onkeypress="if(event.key==='Enter')sendMessage()">
+                    <button class="send-btn" onclick="sendMessage()" aria-label="Send"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg></button>
+                </div>
             </div>
-        </div>
+        </main>
     </div>
 
     <!-- Toast Container -->
@@ -699,9 +824,33 @@
         // Theme
         // ====================================================================
         function initTheme() {
-            const saved = localStorage.getItem('theme') || 'dark';
+            // The native app passes its current theme via the URL hash
+            // (#theme=dark|light) so the chat matches the rest of the app.
+            const fromApp = (location.hash.match(/theme=(dark|light)/) || [])[1];
+            if (fromApp) localStorage.setItem('theme', fromApp);
+            const saved = fromApp || localStorage.getItem('theme') || 'dark';
             document.body.classList.toggle('light-theme', saved === 'light');
             updateThemeIcon();
+        }
+
+        // ====================================================================
+        // Hide chain-of-thought (show only the summary + answer)
+        // ====================================================================
+        function initCot() {
+            document.body.classList.toggle('hide-cot', localStorage.getItem('hideCot') === '1');
+            updateCotIcon();
+        }
+        function toggleCot() {
+            const hide = !document.body.classList.contains('hide-cot');
+            document.body.classList.toggle('hide-cot', hide);
+            localStorage.setItem('hideCot', hide ? '1' : '0');
+            updateCotIcon();
+        }
+        function updateCotIcon() {
+            const on = document.body.classList.contains('hide-cot');
+            const btn = document.getElementById('cotToggle');
+            btn.classList.toggle('active', on);
+            btn.title = on ? 'Show thinking steps' : 'Hide thinking steps';
         }
 
         function toggleTheme() {
@@ -713,7 +862,7 @@
 
         function updateThemeIcon() {
             const isLight = document.body.classList.contains('light-theme');
-            document.getElementById('themeToggle').textContent = isLight ? '☀️' : '🌙';
+            document.getElementById('themeToggle').innerHTML = isLight ? ic('sun', 18) : ic('moon', 18);
         }
 
         // ====================================================================
@@ -832,53 +981,241 @@
         function startPolling() {
             if (pollTimer) return;
             fetchChat();
+            loadConversations();   // populate sidebar + topbar title
             pollTimer = setInterval(fetchChat, 2000);
+        }
+
+        // ---- SVG icon system (no emojis) -----------------------------------
+        const ICONS = {
+            check: '<path d="M20 6 9 17l-5-5"/>',
+            edit: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
+            run: '<path d="M4 17l6-6-6-6"/><path d="M12 19h8"/>',
+            thought: '<path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.1h6c0-.8.4-1.6 1-2.1A7 7 0 0 0 12 2z"/>',
+            explore: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>',
+            dot: '<circle cx="12" cy="12" r="3.5" fill="currentColor" stroke="none"/>',
+            fileEdit: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M10.4 12.6a2 2 0 1 1 3 3L8 21l-4 1 1-4z"/>',
+            help: '<circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>',
+            fileText: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/>',
+            chevR: '<path d="M9 18l6-6-6-6"/>',
+            chevL: '<path d="M15 18l-6-6 6-6"/>',
+            x: '<path d="M18 6 6 18M6 6l12 12"/>',
+            alert: '<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/>',
+            sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+            moon: '<path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/>',
+        };
+        function ic(name, size = 16, sw = 2) {
+            return `<svg class="ic" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-0.15em;flex-shrink:0">${ICONS[name] || ICONS.dot}</svg>`;
+        }
+
+        // ---- Structured chat renderer (mirrors js/chat-live.js) -------------
+        const ACTIVITY_ICON = { edit: 'edit', run: 'run', thought: 'thought', explore: 'explore', step: 'dot' };
+
+        function renderMessage(m) {
+            const el = document.createElement('div');
+            if (m.role === 'user') {
+                el.className = 'sc-msg sc-user';
+                el.innerHTML = `<div class="sc-bubble">${escapeHtml(m.text)}</div>`;
+                return el;
+            }
+            el.className = 'sc-msg sc-agent' + (m.working ? ' sc-working' : '');
+            let html = '';
+            if (m.worked || (m.activity && m.activity.length)) {
+                html += `<div class="sc-activity">`;
+                if (m.worked) html += `<div class="sc-worked">${m.working ? '<span class="sc-spinner"></span>' : ic('check', 15)} ${escapeHtml(m.worked)}</div>`;
+                if (m.activity && m.activity.length) html += `<div class="sc-steps">` + m.activity.map(a =>
+                    `<div class="sc-step sc-step-${a.kind}"><span class="sc-step-ico">${ic(ACTIVITY_ICON[a.kind] || 'dot', 14)}</span>${escapeHtml(a.text)}</div>`).join('') + `</div>`;
+                html += `</div>`;
+            }
+            if (m.text) html += `<div class="sc-prose">${m.text}</div>`;
+            if (m.changes) {
+                const add = m.changes.add ? `<span class="sc-add">+${escapeHtml(String(m.changes.add))}</span>` : '';
+                const del = m.changes.del ? `<span class="sc-del">−${escapeHtml(String(m.changes.del))}</span>` : '';
+                html += `<div class="sc-changes">${ic('fileEdit', 15)} ${escapeHtml(m.changes.summary)} ${add} ${del}</div>`;
+            }
+            el.innerHTML = html;
+            if (m.actions && m.actions.length) {
+                const bar = document.createElement('div');
+                bar.className = 'sc-actions';
+                m.actions.forEach(a => {
+                    const btn = document.createElement('button');
+                    btn.className = 'sc-action sc-action-' + a.kind;
+                    btn.textContent = a.label;
+                    btn.addEventListener('click', () => forwardAction(a.xpath, a.label, btn));
+                    bar.appendChild(btn);
+                });
+                el.appendChild(bar);
+            }
+            return el;
+        }
+
+        async function forwardAction(xpath, label, btn) {
+            btn.disabled = true; btn.style.opacity = '0.5';
+            try {
+                const res = await authFetch('/api/cdp/click', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ xpath, text: label })
+                });
+                const r = await res.json();
+                showToast(r.success ? `${label}` : (r.error || 'Click failed'), r.success ? 'success' : 'error');
+            } catch (e) { showToast('Network error', 'error'); }
+            finally { setTimeout(() => { btn.disabled = false; btn.style.opacity = ''; }, 600); }
+        }
+
+        function renderPrompt(p) {
+            const el = document.createElement('div');
+            el.className = 'sc-prompt';
+            let html = `<div class="sc-prompt-q">${ic('help', 16)} ${escapeHtml(p.question || 'The agent is asking a question')}</div><div class="sc-prompt-opts"></div>`;
+            if (p.otherXpath) html += `<div class="sc-prompt-other"><input type="text" class="sc-prompt-input" placeholder="Write your own answer…"><button class="sc-action sc-action-accept sc-prompt-send">Send</button></div>`;
+            if (p.skipXpath) html += `<button class="sc-prompt-skip">Skip</button>`;
+            el.innerHTML = html;
+            const optsBox = el.querySelector('.sc-prompt-opts');
+            (p.options || []).forEach(o => {
+                const b = document.createElement('button');
+                b.className = 'sc-action sc-prompt-opt'; b.textContent = o.label;
+                b.addEventListener('click', () => answerPrompt({ kind: 'option', optionXpath: o.xpath, submitXpath: p.submitXpath }, el));
+                optsBox.appendChild(b);
+            });
+            if (p.otherXpath) {
+                const input = el.querySelector('.sc-prompt-input'), send = el.querySelector('.sc-prompt-send');
+                const go = () => { const t = input.value.trim(); if (t) answerPrompt({ kind: 'other', otherXpath: p.otherXpath, text: t, submitXpath: p.submitXpath }, el); };
+                send.addEventListener('click', go);
+                input.addEventListener('keypress', e => { if (e.key === 'Enter') go(); });
+            }
+            if (p.skipXpath) el.querySelector('.sc-prompt-skip').addEventListener('click', () => answerPrompt({ kind: 'skip', skipXpath: p.skipXpath }, el));
+            return el;
+        }
+
+        async function answerPrompt(payload, card) {
+            card.querySelectorAll('button, input').forEach(b => b.disabled = true);
+            card.style.opacity = '0.6';
+            try {
+                const res = await authFetch('/api/chat/answer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                const r = await res.json();
+                if (r.success) { showToast('Answer sent', 'success'); lastCascadeHash = null; setTimeout(fetchChat, 400); }
+                else { showToast(r.error || 'Failed', 'error'); card.querySelectorAll('button, input').forEach(b => b.disabled = false); card.style.opacity = ''; }
+            } catch (e) { showToast('Network error', 'error'); card.querySelectorAll('button, input').forEach(b => b.disabled = false); card.style.opacity = ''; }
+        }
+
+        // ---- artifact viewer ----
+        let artifactOverlayOpen = false;
+        function renderArtifactBanner(art) {
+            const el = document.createElement('div');
+            el.className = 'sc-artifact-banner';
+            el.innerHTML = `<span class="sc-art-ico">${ic('fileText', 18)}</span><span class="sc-art-title">${escapeHtml(art.title)}</span><span class="sc-art-open">View ${ic('chevR', 14)}</span>`;
+            el.addEventListener('click', () => openArtifactOverlay(art));
+            return el;
+        }
+        function openArtifactOverlay(art) {
+            artifactOverlayOpen = true;
+            let ov = document.getElementById('scArtifactOverlay');
+            if (!ov) { ov = document.createElement('div'); ov.id = 'scArtifactOverlay'; ov.className = 'sc-art-overlay'; document.body.appendChild(ov); }
+            ov.innerHTML = `<div class="sc-art-head"><button class="sc-art-close" aria-label="Close">${ic('x', 18)}</button><div class="sc-art-head-title">${escapeHtml(art.title)}</div><div class="sc-art-nav"><button class="sc-art-prev" ${art.prevXpath ? '' : 'disabled'}>${ic('chevL', 16)} Prev</button><button class="sc-art-next" ${art.nextXpath ? '' : 'disabled'}>Next ${ic('chevR', 16)}</button></div></div><div class="sc-art-body sc-prose">${art.html}</div>`;
+            ov.style.display = 'flex';
+            ov.querySelector('.sc-art-close').onclick = () => { artifactOverlayOpen = false; ov.style.display = 'none'; };
+            if (art.prevXpath) ov.querySelector('.sc-art-prev').onclick = () => navArtifact(art.prevXpath);
+            if (art.nextXpath) ov.querySelector('.sc-art-next').onclick = () => navArtifact(art.nextXpath);
+        }
+        async function navArtifact(xpath) {
+            try { await authFetch('/api/cdp/click', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ xpath, text: 'artifact-nav' }) }); lastCascadeHash = null; setTimeout(fetchChat, 400); }
+            catch (e) { showToast('Network error', 'error'); }
         }
 
         async function fetchChat() {
             try {
-                const res = await authFetch(`${serverUrl}/api/chat/snapshot`);
+                const res = await authFetch(`${serverUrl}/api/chat/structured`);
                 if (!res.ok) return;
                 const data = await res.json();
+                const container = document.getElementById('cascade-container');
 
-                if (data.html) {
-                    const hash = simpleHash(data.html);
-                    if (hash !== lastCascadeHash) {
-                        lastCascadeHash = hash;
+                if (data.found && data.messages) {
+                    const last = data.messages[data.messages.length - 1] || {};
+                    const pk = data.prompt ? 'P:' + (data.prompt.question || '') + (data.prompt.options || []).map(o => o.label).join(',') : '';
+                    const ak = data.artifact ? 'A:' + data.artifact.title + data.artifact.html.length : '';
+                    const hash = data.messages.length + '|' + (last.text || '').length + '|' + (last.worked || '') + '|' + (last.actions || []).map(a => a.label).join(',') + '|' + pk + '|' + ak;
+                    if (hash === lastCascadeHash) return;
+                    lastCascadeHash = hash;
 
-                        if (!cssLoaded && data.css) {
-                            const style = document.createElement('style');
-                            style.id = 'cascadeStyles';
-                            style.textContent = data.css;
-                            document.head.appendChild(style);
-                            cssLoaded = true;
-                        }
-
-                        const container = document.getElementById('cascade-container');
-                        container.innerHTML = data.html;
-
-                        // Scroll to bottom - find the last actual content element
-                        setTimeout(() => {
-                            // Try to find the last meaningful element
-                            const lastElement = container.querySelector(':scope > div:last-child') || container.lastElementChild;
-                            if (lastElement) {
-                                lastElement.scrollIntoView({ behavior: 'instant', block: 'end' });
-                            } else {
-                                container.scrollTop = container.scrollHeight;
-                            }
-                        }, 100);
+                    if (data.model) { const lbl = document.getElementById('modelLabel'); if (lbl) lbl.textContent = data.model; }
+                    const atBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 120;
+                    container.innerHTML = '';
+                    if (data.artifact && data.artifact.open) {
+                        container.appendChild(renderArtifactBanner(data.artifact));
+                        if (artifactOverlayOpen) openArtifactOverlay(data.artifact);
+                    } else if (artifactOverlayOpen) {
+                        artifactOverlayOpen = false;
+                        const ov = document.getElementById('scArtifactOverlay'); if (ov) ov.style.display = 'none';
                     }
+                    if (data.messages.length === 0 && !data.artifact) {
+                        container.innerHTML = `<div class="chat-empty"><span>No messages yet</span></div>`;
+                    } else {
+                        const frag = document.createDocumentFragment();
+                        data.messages.forEach(m => frag.appendChild(renderMessage(m)));
+                        container.appendChild(frag);
+                    }
+                    if (data.prompt) container.appendChild(renderPrompt(data.prompt));
+                    if (atBottom) setTimeout(() => { container.scrollTop = container.scrollHeight; }, 60);
                 } else if (data.error) {
-                    document.getElementById('cascade-container').innerHTML = `
-                        <div class="chat-empty">
-                            <span class="icon">⚠️</span>
-                            <span>${data.error}</span>
-                        </div>
-                    `;
+                    if (lastCascadeHash !== 'err:' + data.error) {
+                        lastCascadeHash = 'err:' + data.error;
+                        container.innerHTML = `<div class="chat-empty"><span class="icon">${ic('alert', 38)}</span><span>${escapeHtml(data.error)}</span></div>`;
+                    }
                 }
             } catch (e) {
                 console.log('Chat fetch error:', e);
             }
+        }
+
+        // ---- sidebar (conversation history) --------------------------------
+        let allConversations = [];
+        function openSidebar() {
+            document.querySelector('.app-shell').classList.add('sidebar-open');
+            loadConversations();
+        }
+        function closeSidebar() {
+            document.querySelector('.app-shell').classList.remove('sidebar-open');
+        }
+        async function loadConversations() {
+            try {
+                const res = await authFetch(`${serverUrl}/api/chat/conversations`);
+                const data = await res.json();
+                allConversations = data.conversations || [];
+                document.getElementById('convoCount').textContent = allConversations.length ? `(${allConversations.length})` : '';
+                // reflect the active conversation title in the topbar
+                const active = allConversations.find(c => c.active);
+                if (active) document.getElementById('convoTitle').textContent = active.title;
+                renderConvoList();
+            } catch (e) { showToast('Failed to load conversations', 'error'); }
+        }
+        function renderConvoList() {
+            const q = (document.getElementById('convoSearch').value || '').toLowerCase();
+            const list = document.getElementById('convoList');
+            const items = allConversations.filter(c => c.title.toLowerCase().includes(q));
+            list.innerHTML = items.map(c =>
+                `<div class="convo-item ${c.active ? 'active' : ''}" onclick="pickConversation('${c.id}')">${escapeHtml(c.title)}</div>`).join('') ||
+                `<div class="convo-empty">No conversations</div>`;
+        }
+        async function pickConversation(id) {
+            closeSidebar();
+            showToast('Switching…', 'success');
+            try {
+                const res = await authFetch(`${serverUrl}/api/chat/conversations/switch`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
+                const r = await res.json();
+                if (r.success) { lastCascadeHash = null; setTimeout(() => { fetchChat(); loadConversations(); }, 600); }
+                else showToast(r.error || 'Switch failed', 'error');
+            } catch (e) { showToast('Network error', 'error'); }
+        }
+        async function newConversation() {
+            closeSidebar();
+            showToast('New conversation…', 'success');
+            try {
+                const res = await authFetch(`${serverUrl}/api/chat/conversations/new`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+                const r = await res.json();
+                if (r.success) {
+                    document.getElementById('convoTitle').textContent = 'New Conversation';
+                    lastCascadeHash = null;
+                    setTimeout(() => { fetchChat(); loadConversations(); }, 600);
+                } else showToast(r.error || 'Failed', 'error');
+            } catch (e) { showToast('Network error', 'error'); }
         }
 
         function simpleHash(str) {
@@ -990,6 +1327,7 @@
         // Init
         // ====================================================================
         initTheme();
+        initCot();
         checkAuth().then((authOk) => {
             if (authOk) {
                 connectWebSocket();

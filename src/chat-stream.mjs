@@ -11,6 +11,7 @@ import WebSocket from 'ws';
 import * as TelegramBot from './telegram-bot.mjs';
 import * as Config from './config.mjs';
 import { clickElementByXPath, getPreferredWorkspace } from './cdp-client.mjs';
+import { extractStructured, extractConversations, switchConversation, newConversation } from './antigravity-dom.mjs';
 
 // Notification state tracker (avoids duplicate alerts)
 let lastNotifState = { inputNeeded: false, error: false, dialogError: false };
@@ -21,10 +22,14 @@ let recentlyClickedXpaths = new Set();
 let autoAcceptCallback = null;
 let debugCallback = null;
 let errorCallback = null;
+let notifyCallback = null;
 
 export function setAutoAcceptCallback(cb) { autoAcceptCallback = cb; }
 export function setDebugCallback(cb) { debugCallback = cb; }
 export function setErrorCallback(cb) { errorCallback = cb; }
+/** Fired on agent-status transitions ({ kind, message }) so the server can push
+ *  them to mobile clients (input_needed | complete | error). Independent of Telegram. */
+export function setNotifyCallback(cb) { notifyCallback = cb; }
 
 const CDP_PORTS = [9222, 9333, 9000, 9001, 9002, 9003];
 
@@ -624,9 +629,22 @@ function checkAndNotify(html) {
     const hasPermissionDialog = /needs permission/i.test(html) && /Waiting/i.test(html);
     const hasActionableInput = actionButtons.length > 0 || hasCommandDialog || hasPermissionDialog;
 
-    // Save previous state, then update
+    // Save previous state, then update. Preserve dialogError, which is owned by
+    // checkErrorDialogs() — otherwise it resets every poll and re-fires error alerts.
     const prevState = { ...lastNotifState };
-    lastNotifState = { inputNeeded: hasActionableInput };
+    lastNotifState = { inputNeeded: hasActionableInput, dialogError: lastNotifState.dialogError };
+
+    const inputNeededNow = hasActionableInput && !prevState.inputNeeded;
+
+    // Build the input-needed message (shared by app + Telegram).
+    let inputMsg = 'Your input is required in the chat.';
+    if (hasCommandDialog) inputMsg = 'Your input is required — Run command?';
+    else if (hasPermissionDialog) inputMsg = 'Your input is required — Permission needed.';
+    else if (actionButtons.length > 0) inputMsg = `Your input is required — ${actionButtons.map(b => b.label).join(', ')}`;
+
+    // --- App notifications (WebSocket → phone) — independent of Telegram ---
+    if (inputNeededNow) notifyCallback?.({ kind: 'input_needed', message: inputMsg });
+    if (agentJustStopped) notifyCallback?.({ kind: 'complete', message: 'Agent has completed the process.' });
 
     // --- Telegram notifications ---
     if (!TelegramBot.isRunning()) return;
@@ -635,13 +653,9 @@ function checkAndNotify(html) {
     const notifications = tgConfig.notifications || {};
 
     // 1. Input needed: actionable buttons or dialogs just appeared
-    if (hasActionableInput && !prevState.inputNeeded && notifications.onInputNeeded !== false) {
+    if (inputNeededNow && notifications.onInputNeeded !== false) {
         if (debugCallback) debugCallback('Sending INPUT_NEEDED notification');
-        let msg = 'Your input is required in the chat.';
-        if (hasCommandDialog) msg = 'Your input is required — Run command?';
-        else if (hasPermissionDialog) msg = 'Your input is required — Permission needed.';
-        else if (actionButtons.length > 0) msg = `Your input is required — ${actionButtons.map(b => b.label).join(', ')}`;
-        TelegramBot.sendNotification('input_needed', msg);
+        TelegramBot.sendNotification('input_needed', inputMsg);
     }
 
     // 2. Agent just stopped (HTML unchanged for 3 polls after activity) — completion only
@@ -658,9 +672,10 @@ function checkAndNotify(html) {
  * Runs every poll cycle and sends Telegram notifications on transition.
  */
 async function checkErrorDialogs(cdp, contextId) {
-    if (!TelegramBot.isRunning()) return;
+    // Run the scan if either the app (notifyCallback) or Telegram wants errors.
     const tgConfig = Config.getConfig('telegram');
-    if (!tgConfig?.enabled || tgConfig.notifications?.onError === false) return;
+    const tgWantsErrors = TelegramBot.isRunning() && tgConfig?.enabled && tgConfig.notifications?.onError !== false;
+    if (!notifyCallback && !tgWantsErrors) return;
 
     const DIALOG_SCRIPT = `(function() {
         // Look for dialog/modal elements with error text
@@ -706,7 +721,8 @@ async function checkErrorDialogs(cdp, contextId) {
             lastNotifState.dialogError = true;
             if (debugCallback) debugCallback(`Error dialog detected: ${dialogError.error}`);
             if (errorCallback) errorCallback(dialogError.error);
-            TelegramBot.sendNotification('error', dialogError.error);
+            notifyCallback?.({ kind: 'error', message: dialogError.error });
+            if (tgWantsErrors) TelegramBot.sendNotification('error', dialogError.error);
         } else if (!dialogError && lastNotifState.dialogError) {
             // Dialog dismissed
             lastNotifState.dialogError = false;
@@ -829,4 +845,124 @@ export async function getChatSnapshot() {
  */
 export function isStreaming() {
     return connection !== null && pollInterval !== null;
+}
+
+/**
+ * Find the execution context that contains the chat by running the structured
+ * extractor against each context (works for Antigravity 2.0, which has no
+ * #cascade element). Returns { contextId, model } or null.
+ */
+async function findStructuredContext(cdp) {
+    for (const ctx of cdp.contexts) {
+        const model = await extractStructured(cdp, ctx.id);
+        if (model && model.found) return { contextId: ctx.id, model };
+    }
+    return null;
+}
+
+/**
+ * Get a structured snapshot of the conversation (clean JSON model).
+ * Used by the new mobile chat renderer. Reuses the live connection if present,
+ * otherwise opens a one-shot CDP connection.
+ */
+export async function getStructuredSnapshot() {
+    // Reuse active stream connection if available
+    if (connection) {
+        const found = await findStructuredContext(connection);
+        if (found) return found.model;
+    }
+
+    // One-shot connection
+    const targets = await findTargets();
+    for (const target of targets) {
+        try {
+            const cdp = await connectCDP(target.webSocketDebuggerUrl);
+            const found = await findStructuredContext(cdp);
+            cdp.ws.close();
+            if (found) return found.model;
+        } catch (e) { /* try next target */ }
+    }
+    return null;
+}
+
+/**
+ * Find a context that can list conversations.
+ */
+async function findConversationsContext(cdp) {
+    for (const ctx of cdp.contexts) {
+        const conv = await extractConversations(cdp, ctx.id);
+        if (conv && conv.found) return { contextId: ctx.id, conv };
+    }
+    return null;
+}
+
+/**
+ * List conversations (chat history) for the picker.
+ */
+export async function getConversations() {
+    if (connection) {
+        const found = await findConversationsContext(connection);
+        if (found) return found.conv;
+    }
+    const targets = await findTargets();
+    for (const target of targets) {
+        try {
+            const cdp = await connectCDP(target.webSocketDebuggerUrl);
+            const found = await findConversationsContext(cdp);
+            cdp.ws.close();
+            if (found) return found.conv;
+        } catch (e) { /* next */ }
+    }
+    return null;
+}
+
+/**
+ * Switch the IDE to a conversation by id.
+ */
+export async function switchToConversation(id) {
+    const doSwitch = async (cdp) => {
+        const found = await findConversationsContext(cdp);
+        if (!found) return false;
+        return switchConversation(cdp, found.contextId, id);
+    };
+
+    if (connection) {
+        const ok = await doSwitch(connection);
+        if (ok) return true;
+    }
+    const targets = await findTargets();
+    for (const target of targets) {
+        try {
+            const cdp = await connectCDP(target.webSocketDebuggerUrl);
+            const ok = await doSwitch(cdp);
+            cdp.ws.close();
+            if (ok) return true;
+        } catch (e) { /* next */ }
+    }
+    return false;
+}
+
+/**
+ * Start a new conversation (clicks the IDE's "New Conversation" button).
+ */
+export async function startNewConversation() {
+    const doNew = async (cdp) => {
+        const found = await findConversationsContext(cdp);
+        const ctxId = found ? found.contextId : (await findStructuredContext(cdp))?.contextId;
+        if (!ctxId) return false;
+        return newConversation(cdp, ctxId);
+    };
+    if (connection) {
+        if (await doNew(connection)) return true;
+    }
+    const targets = await findTargets();
+    for (const target of targets) {
+        try {
+            const cdp = await connectCDP(target.webSocketDebuggerUrl);
+            const ok = await doNew(cdp);
+            cdp.ws.close();
+            if (ok) return true;
+        } catch (e) { /* next */ }
+    }
+    return false;
 }

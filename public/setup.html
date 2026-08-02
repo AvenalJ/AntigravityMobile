@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Setup — Antigravity Mobile</title>
+<style>
+    :root {
+        --bg: #0d1117; --panel: #161b22; --border: #30363d;
+        --text: #e6edf3; --muted: #8b949e; --accent: #58a6ff;
+        --ok: #22c55e; --warn: #f59e0b; --bad: #ef4444;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+        background: var(--bg); color: var(--text); min-height: 100vh;
+        font-family: -apple-system, 'Segoe UI', Roboto, sans-serif;
+        display: flex; align-items: center; justify-content: center; padding: 24px;
+    }
+    .wizard { width: 100%; max-width: 680px; }
+    .progress { display: flex; gap: 6px; margin-bottom: 20px; }
+    .progress span { flex: 1; height: 4px; border-radius: 2px; background: var(--border); transition: background .3s; }
+    .progress span.done { background: var(--accent); }
+    .card {
+        background: var(--panel); border: 1px solid var(--border);
+        border-radius: 12px; padding: 28px; min-height: 420px;
+        display: flex; flex-direction: column;
+    }
+    .step { display: none; flex: 1; }
+    .step.active { display: block; }
+    h1 { font-size: 20px; margin-bottom: 4px; }
+    .subtitle { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
+    p, li { font-size: 14px; line-height: 1.6; }
+    p.dim, li.dim, .dim { color: var(--muted); }
+    ul, ol { margin: 10px 0 10px 20px; }
+    code, .code {
+        background: #0a0d12; border: 1px solid var(--border); border-radius: 6px;
+        padding: 2px 6px; font-family: Consolas, monospace; font-size: 12.5px;
+    }
+    .code.block { display: block; padding: 10px 12px; margin: 10px 0; white-space: pre-wrap; word-break: break-all; }
+    .check {
+        display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+        border: 1px solid var(--border); border-radius: 8px; margin: 8px 0; font-size: 14px;
+    }
+    .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
+    .dot.ok { background: var(--ok); box-shadow: 0 0 6px rgba(34,197,94,.6); }
+    .dot.warn { background: var(--warn); } .dot.bad { background: var(--bad); }
+    .dot.spin { background: var(--accent); animation: pulse 1s infinite; }
+    @keyframes pulse { 50% { opacity: .35; } }
+    .check small { color: var(--muted); margin-left: auto; font-size: 12px; text-align: right; max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .row { display: flex; gap: 8px; margin: 10px 0; }
+    input[type=text] {
+        flex: 1; background: #0a0d12; border: 1px solid var(--border); border-radius: 8px;
+        color: var(--text); padding: 9px 12px; font-size: 13px; font-family: Consolas, monospace;
+    }
+    input[type=text]:focus { outline: none; border-color: var(--accent); }
+    .paircode {
+        font-family: Consolas, monospace; font-size: 34px; letter-spacing: 8px;
+        text-align: center; padding: 16px; margin: 14px 0; background: #0a0d12;
+        border: 1px solid var(--border); border-radius: 10px; color: var(--accent);
+        cursor: pointer; user-select: all;
+    }
+    .console {
+        background: #0a0d12; border: 1px solid var(--border); border-radius: 8px;
+        font-family: Consolas, monospace; font-size: 11.5px; color: var(--muted);
+        padding: 10px 12px; margin: 10px 0; max-height: 160px; overflow-y: auto;
+        white-space: pre-wrap; word-break: break-all;
+    }
+    .nav { display: flex; justify-content: space-between; margin-top: 24px; }
+    button {
+        background: var(--accent); color: #0d1117; border: none; border-radius: 8px;
+        padding: 10px 22px; font-size: 14px; font-weight: 600; cursor: pointer;
+        transition: opacity .15s;
+    }
+    button:hover { opacity: .85; }
+    button.ghost { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+    button.small { padding: 8px 14px; font-size: 13px; }
+    button:disabled { opacity: .4; cursor: default; }
+    a { color: var(--accent); }
+    .hint { font-size: 12.5px; color: var(--muted); margin-top: 14px; }
+    .err { font-size: 12.5px; color: var(--bad); margin-top: 6px; min-height: 16px; }
+    #toast {
+        position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%);
+        background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+        padding: 10px 18px; font-size: 13px; opacity: 0; transition: opacity .25s;
+        pointer-events: none; z-index: 9;
+    }
+    #toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<div class="wizard">
+    <div class="progress" id="progress"></div>
+    <div class="card">
+
+        <!-- Step 0: Welcome -->
+        <div class="step" data-step="0">
+            <h1>Welcome to Antigravity Mobile</h1>
+            <div class="subtitle">Control the Antigravity agent on this PC from your phone.</div>
+            <p>This wizard sets up — and where it can, <b>does for you</b> — the four things needed:</p>
+            <ol>
+                <li>Antigravity running with remote debugging (CDP)</li>
+                <li>The desktop helper for screen streaming &amp; remote input</li>
+                <li>A network path from your phone to this PC (Tailscale)</li>
+                <li>Pairing the phone app</li>
+            </ol>
+            <p class="dim" style="margin-top:12px;">Everything on this page updates live — when a check turns green you're done with it. Re-open the wizard any time at <code>/setup</code>.</p>
+        </div>
+
+        <!-- Step 1: Antigravity + CDP -->
+        <div class="step" data-step="1">
+            <h1>Antigravity &amp; remote debugging</h1>
+            <div class="subtitle">The bridge reads the agent chat through Chrome DevTools Protocol.</div>
+            <div class="check"><span class="dot" id="agFound"></span> Antigravity installation <small id="agPath">checking…</small></div>
+            <div id="agSetPath" style="display:none;">
+                <p class="dim" style="margin-top:8px;">Not found automatically — paste the full path to <code>Antigravity.exe</code>:</p>
+                <div class="row">
+                    <input type="text" id="agPathInput" placeholder="C:\Users\you\AppData\Local\Programs\Antigravity\Antigravity.exe">
+                    <button class="small" onclick="savePath()">Save</button>
+                </div>
+                <div class="err" id="agPathErr"></div>
+            </div>
+            <div class="check"><span class="dot" id="cdpActive"></span> CDP reachable <small id="cdpDetail">checking…</small></div>
+            <div id="cdpHelp" style="display:none;">
+                <div class="row">
+                    <button class="small" id="launchBtn" onclick="launchAntigravity()">▶ Launch Antigravity with CDP</button>
+                </div>
+                <p class="dim">If Antigravity is already open <b>without</b> the debug flag, close it first, then click Launch. This starts it with <code>--remote-debugging-port</code> and the check above turns green by itself.</p>
+            </div>
+        </div>
+
+        <!-- Step 2: Desktop helper -->
+        <div class="step" data-step="2">
+            <h1>Desktop helper</h1>
+            <div class="subtitle">Streams the whole desktop and injects mouse/keyboard input.</div>
+            <div class="check"><span class="dot" id="helperBuilt"></span> Helper binary <small id="helperPath"></small></div>
+            <div class="check"><span class="dot" id="helperConn"></span> Helper connected <small id="helperGeom"></small></div>
+
+            <div id="helperBuildBox" style="display:none;">
+                <div class="row">
+                    <button class="small" id="buildBtn" onclick="buildHelper()">🔨 Build helper now</button>
+                </div>
+                <div class="console" id="buildLog" style="display:none;"></div>
+                <p class="dim" id="cargoMissing" style="display:none;">The Rust toolchain isn't installed. Install it first (one command, ~2 min):</p>
+                <span class="code block" id="cargoCmd" style="display:none;">winget install -e --id Rustlang.Rustup</span>
+            </div>
+            <div id="helperStartBox" style="display:none;">
+                <div class="row">
+                    <button class="small" onclick="startHelper()">▶ Start helper</button>
+                </div>
+                <p class="dim">The helper is also a launcher: from now on, double-clicking it after a reboot starts this whole stack.</p>
+            </div>
+            <p class="hint">Optional: without the helper you can still use chat, files and quotas from the phone — only the live Screen tab and remote input need it.</p>
+        </div>
+
+        <!-- Step 3: Network -->
+        <div class="step" data-step="3">
+            <h1>Reach this PC from your phone</h1>
+            <div class="subtitle">We recommend Tailscale — a free private network between your devices.</div>
+            <div class="check"><span class="dot" id="tsFound"></span> Tailscale on this PC <small id="tsIP"></small></div>
+            <div id="tsHelp" style="display:none;">
+                <ol style="margin-top:10px;">
+                    <li>Install <a href="https://tailscale.com/download" target="_blank">Tailscale</a> on this PC and sign in.</li>
+                    <li>Install the Tailscale app on your phone and sign in with the same account.</li>
+                </ol>
+                <p class="dim">The two devices can then talk privately from anywhere, end-to-end encrypted — no port forwarding, nothing exposed to the internet. This check turns green when Tailscale is up.</p>
+            </div>
+            <p class="hint" id="lanHint" style="display:none;"></p>
+        </div>
+
+        <!-- Step 4: Phone app + pairing -->
+        <div class="step" data-step="4">
+            <h1>Connect the phone app</h1>
+            <div class="subtitle">Install the Android companion app and pair it.</div>
+            <ol>
+                <li>Build &amp; sideload the app from the <code>android/</code> folder (see <code>android/README.md</code>), or install the APK if you were given one.</li>
+                <li>Open the app and enter this server address (tap to copy):
+                    <span class="code block" id="serverUrl" style="cursor:pointer;" onclick="copy(this.textContent, 'Address copied')">…</span></li>
+                <li>In the app go to <b>Settings → Pair</b> and enter this code (tap to copy):</li>
+            </ol>
+            <div class="paircode" id="pairCode" onclick="copy(this.textContent, 'Code copied')">······</div>
+            <div class="check"><span class="dot" id="pairedDot"></span> Paired devices <small id="pairedCount">0</small></div>
+        </div>
+
+        <!-- Step 5: Done -->
+        <div class="step" data-step="5">
+            <h1>All set 🎉</h1>
+            <div class="subtitle">Your phone can now monitor and drive Antigravity on this PC.</div>
+            <div id="summary"></div>
+            <ul style="margin-top:14px;">
+                <li><b>Admin panel</b> — themes, Telegram alerts, auto-accept, tunnels: <a href="/admin">/admin</a></li>
+                <li><b>Mobile dashboard</b> (browser fallback): <code id="dashUrl">…</code></li>
+                <li>Re-run this wizard any time at <code>/setup</code>.</li>
+            </ul>
+        </div>
+
+        <div class="nav">
+            <button class="ghost" id="backBtn" onclick="go(-1)">Back</button>
+            <button id="nextBtn" onclick="go(1)">Next</button>
+        </div>
+    </div>
+</div>
+<div id="toast"></div>
+
+<script>
+const STEPS = 6;
+let cur = 0;
+let status = null;
+let launching = false;   // clicked Launch, waiting for CDP to appear
+let starting = false;    // clicked Start helper, waiting for connection
+
+const progress = document.getElementById('progress');
+for (let i = 0; i < STEPS; i++) progress.appendChild(document.createElement('span'));
+
+const $ = id => document.getElementById(id);
+function set(id, cls) { $(id).className = 'dot' + (cls ? ' ' + cls : ''); }
+function txt(id, t) { $(id).textContent = t; }
+function show(id, on) { $(id).style.display = on ? '' : 'none'; }
+function toast(msg) {
+    const t = $('toast'); t.textContent = msg; t.classList.add('show');
+    clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), 2200);
+}
+function copy(text, msg) { navigator.clipboard.writeText(text).then(() => toast(msg)); }
+async function post(url, body) {
+    const r = await fetch(url, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: body ? JSON.stringify(body) : undefined,
+    });
+    let data = {};
+    try { data = await r.json(); } catch (e) { }
+    return { ok: r.ok, ...data };
+}
+
+function render() {
+    document.querySelectorAll('.step').forEach(s =>
+        s.classList.toggle('active', Number(s.dataset.step) === cur));
+    [...progress.children].forEach((s, i) => s.classList.toggle('done', i <= cur));
+    $('backBtn').style.visibility = cur === 0 ? 'hidden' : 'visible';
+    $('nextBtn').textContent = cur === STEPS - 1 ? 'Open Admin Panel' : 'Next';
+}
+
+function go(d) {
+    if (cur === STEPS - 1 && d > 0) { location.href = '/admin'; return; }
+    cur = Math.max(0, Math.min(STEPS - 1, cur + d));
+    render();
+}
+
+// ── Actions ────────────────────────────────────────────────────────────────
+async function savePath() {
+    $('agPathErr').textContent = '';
+    const r = await post('/api/setup/antigravity-path', { path: $('agPathInput').value });
+    if (r.success) { toast('Path saved ✓'); poll(); }
+    else $('agPathErr').textContent = r.error || 'Could not save path';
+}
+
+async function launchAntigravity() {
+    $('launchBtn').disabled = true;
+    launching = true;
+    const r = await post('/api/setup/launch-antigravity');
+    if (r.success) toast('Launching Antigravity… waiting for CDP');
+    else { toast(r.error || 'Launch failed'); launching = false; $('launchBtn').disabled = false; }
+    setTimeout(() => { launching = false; $('launchBtn').disabled = false; }, 25000);
+}
+
+async function buildHelper() {
+    const r = await post('/api/setup/helper/build');
+    if (r.success) { toast('Build started — this takes a few minutes the first time'); show('buildLog', true); }
+    else if (r.error === 'cargo_missing') toast('Install the Rust toolchain first (see below)');
+    else toast(r.error || 'Build failed to start');
+}
+
+async function startHelper() {
+    starting = true;
+    const r = await post('/api/setup/helper/start');
+    if (r.success) toast(r.alreadyConnected ? 'Already connected ✓' : 'Helper starting…');
+    else { toast(r.error || 'Could not start helper'); starting = false; }
+    setTimeout(() => { starting = false; }, 15000);
+}
+
+// ── Live status ────────────────────────────────────────────────────────────
+async function poll() {
+    try {
+        const r = await fetch('/api/setup/status');
+        status = await r.json();
+    } catch (e) { return; }
+    const s = status;
+
+    // Step 1 — Antigravity + CDP
+    const ag = s.antigravity.app || s.antigravity.ide;
+    set('agFound', ag ? 'ok' : 'bad');
+    txt('agPath', ag || 'not found');
+    show('agSetPath', !ag);
+    set('cdpActive', s.cdp.active ? 'ok' : (launching ? 'spin' : 'warn'));
+    txt('cdpDetail', s.cdp.active ? `port ${s.cdp.port} ✓` : (launching ? 'waiting…' : `nothing on port ${s.cdp.port}`));
+    show('cdpHelp', !s.cdp.active && !!ag);
+    if (s.cdp.active) launching = false;
+
+    // Step 2 — Helper
+    const b = s.helper.build || {};
+    set('helperBuilt', s.helper.exeExists ? 'ok' : (b.running ? 'spin' : 'warn'));
+    txt('helperPath', s.helper.exeExists ? '' : (b.running ? 'building…' : 'not built yet'));
+    set('helperConn', s.helper.connected ? 'ok' : (starting ? 'spin' : 'warn'));
+    txt('helperGeom', s.helper.connected
+        ? `${s.helper.geometry.width}×${s.helper.geometry.height} ✓`
+        : (starting ? 'starting…' : 'not running'));
+    if (s.helper.connected) starting = false;
+
+    show('helperBuildBox', !s.helper.exeExists || b.running);
+    $('buildBtn').disabled = !!b.running || !s.helper.cargoAvailable;
+    $('buildBtn').textContent = b.running ? '⏳ Building…' : '🔨 Build helper now';
+    show('cargoMissing', !s.helper.cargoAvailable);
+    show('cargoCmd', !s.helper.cargoAvailable);
+    if (b.log && b.log.length && (b.running || b.ok === false)) {
+        show('buildLog', true);
+        const el = $('buildLog');
+        el.textContent = b.log.join('\n');
+        el.scrollTop = el.scrollHeight;
+    } else if (b.ok === true) {
+        show('buildLog', false);
+    }
+    show('helperStartBox', s.helper.exeExists && !s.helper.connected);
+
+    // Step 3 — Network
+    set('tsFound', s.network.tailscaleIP ? 'ok' : 'warn');
+    txt('tsIP', s.network.tailscaleIP || 'not detected');
+    show('tsHelp', !s.network.tailscaleIP);
+    if (!s.network.tailscaleIP && s.network.lanIP) {
+        show('lanHint', true);
+        $('lanHint').textContent =
+            `Alternative: on the same Wi-Fi you can use the LAN address ${s.network.lanIP}:${s.port} — but it only works at home.`;
+    } else { show('lanHint', false); }
+
+    // Step 4 — Pairing
+    const host = s.network.tailscaleIP || s.network.lanIP || '<this-pc-ip>';
+    txt('serverUrl', `http://${host}:${s.port}`);
+    txt('pairCode', s.pairingCode || '——————');
+    set('pairedDot', s.pairedDevices > 0 ? 'ok' : 'warn');
+    txt('pairedCount', s.pairedDevices > 0 ? `${s.pairedDevices} paired ✓` : 'none yet — waiting');
+
+    // Step 5 — Summary
+    txt('dashUrl', `http://${host}:${s.port}`);
+    const items = [
+        [!!ag, 'Antigravity found'],
+        [s.cdp.active, 'CDP active'],
+        [s.helper.connected, 'Desktop helper connected'],
+        [!!s.network.tailscaleIP, 'Tailscale up'],
+        [s.pairedDevices > 0, 'Phone paired'],
+    ];
+    $('summary').innerHTML = items.map(([ok, label]) =>
+        `<div class="check"><span class="dot ${ok ? 'ok' : 'warn'}"></span> ${label}</div>`).join('');
+}
+
+render();
+poll();
+setInterval(poll, 2500);
+</script>
+</body>
+</html>

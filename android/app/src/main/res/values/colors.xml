@@ -1,0 +1,5 @@
+<resources>
+    <!-- Pre-Compose window background (light). Compose Material3 owns in-app colors. -->
+    <color name="window_background">#FBFCFC</color>
+    <color name="ic_launcher_background">#0F1413</color>
+</resources>
