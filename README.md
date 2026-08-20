@@ -40,7 +40,7 @@ Mobile dashboard, native Android app, and full remote control for [Antigravity I
 **Platform support:** developed and tested on **Windows 11**. The desktop helper (screen streaming + remote input) and quota monitoring are currently Windows-only; the dashboard, chat, files, and Git features of the bridge should work on macOS/Linux but are untested there.
 
 ```bash
-git clone https://github.com/Xpl4iN/AntigravityMobile.git
+git clone https://github.com/AvenalJ/AntigravityMobile.git
 cd AntigravityMobile
 npm install
 node src/http-server.mjs
