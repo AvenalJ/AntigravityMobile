@@ -725,7 +725,7 @@ let cargoChecked = null;
 async function hasCargo() {
     if (cargoChecked !== null) return cargoChecked;
     cargoChecked = await new Promise(r => {
-        const c = spawn(process.platform === 'win32' ? 'cargo.exe' : 'cargo', ['--version'], { shell: true, stdio: 'ignore' });
+        const c = spawn(process.platform === 'win32' ? 'cargo.exe' : 'cargo', ['--version'], { shell: true, stdio: 'ignore', windowsHide: true });
         c.on('error', () => r(false));
         c.on('exit', code => r(code === 0));
     });
@@ -2555,7 +2555,7 @@ app.post('/api/files/upload', uploadAny.array('files'), (req, res) => {
 // Clipboard sync (phone <-> PC) via PowerShell Get/Set-Clipboard.
 app.get('/api/clipboard', (req, res) => {
     try {
-        const child = spawn('powershell', ['-NoProfile', '-NonInteractive', '-Command', 'Get-Clipboard -Raw']);
+        const child = spawn('powershell', ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-Command', 'Get-Clipboard -Raw'], { windowsHide: true });
         let out = '';
         child.stdout.on('data', d => { out += d.toString(); });
         child.on('close', () => res.json({ text: out.replace(/\r\n$/, '') }));
@@ -2568,7 +2568,7 @@ app.post('/api/clipboard', (req, res) => {
     try {
         const text = String(req.body?.text ?? '');
         // Pass the text via env to avoid any quoting/escaping issues.
-        const child = spawn('powershell', ['-NoProfile', '-NonInteractive', '-Command', 'Set-Clipboard -Value $env:AGCLIP'], {
+        const child = spawn('powershell', ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-Command', 'Set-Clipboard -Value $env:AGCLIP'], { windowsHide: true,
             env: { ...process.env, AGCLIP: text },
         });
         child.on('close', (code) => {
@@ -2608,7 +2608,7 @@ app.post('/api/files/download-zip', (req, res) => {
         const ps = "$ErrorActionPreference='Stop'; " +
             "$items = Get-Content -LiteralPath $env:AGZ_LIST; " +
             "Compress-Archive -LiteralPath $items -DestinationPath $env:AGZ_OUT -Force";
-        const child = spawn('powershell', ['-NoProfile', '-NonInteractive', '-Command', ps], {
+        const child = spawn('powershell', ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-Command', ps], { windowsHide: true,
             env: { ...process.env, AGZ_LIST: listFile, AGZ_OUT: zipFile },
         });
         let errOut = '';
