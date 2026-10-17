@@ -8,7 +8,6 @@
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
-use tokio::process::Command;
 use tokio::time::sleep;
 
 /// Locate `scripts/start-bridge.bat`, honouring an override env var, else
@@ -31,14 +30,27 @@ fn find_bridge_bat() -> Option<PathBuf> {
     }
 }
 
+async fn is_bridge_alive() -> bool {
+    for port in [5050, 5000] {
+        if tokio::net::TcpStream::connect(("127.0.0.1", port as u16)).await.is_ok() {
+            return true;
+        }
+    }
+    false
+}
+
 /// Spawn-and-supervise loop. Runs forever; never returns under normal use.
 pub async fn supervise_bridge() {
+    if std::env::var("HELPER_NO_SUPERVISE").is_ok() {
+        log::info!("HELPER_NO_SUPERVISE is set; skipping bridge supervisor");
+        return;
+    }
+
     let bat = match find_bridge_bat() {
         Some(b) => b,
         None => {
             log::error!(
-                "start-bridge.bat not found (set HELPER_BRIDGE to its full path). \
-                 Node bridge will NOT be auto-started."
+                "start-bridge.bat not found (set HELPER_BRIDGE to its full path).                  Node bridge will NOT be auto-started."
             );
             return;
         }
@@ -53,14 +65,27 @@ pub async fn supervise_bridge() {
 
     let mut backoff = Duration::from_secs(1);
     loop {
-        // `cmd /c <bat>` runs the batch in this console; MOBILE_SUPERVISED skips its pause.
-        let mut child = match Command::new("cmd")
+        // If the bridge is already running, wait and check again instead of launching a conflicting instance
+        if is_bridge_alive().await {
+            sleep(Duration::from_secs(5)).await;
+            backoff = Duration::from_secs(1);
+            continue;
+        }
+
+        let mut std_cmd = std::process::Command::new("cmd");
+        std_cmd
             .arg("/c")
             .arg(&bat)
             .current_dir(&repo_root)
-            .env("MOBILE_SUPERVISED", "1")
-            .spawn()
+            .env("MOBILE_SUPERVISED", "1");
+
+        #[cfg(windows)]
         {
+            use std::os::windows::process::CommandExt;
+            std_cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        }
+
+        let mut child = match tokio::process::Command::from(std_cmd).spawn() {
             Ok(c) => c,
             Err(e) => {
                 log::error!("failed to launch bridge: {e}; retrying in {:?}", backoff);
@@ -75,7 +100,6 @@ pub async fn supervise_bridge() {
             Err(e) => log::error!("error waiting on bridge: {e}; relaunching"),
         }
 
-        // Bridge stayed up a while -> reset backoff; crash-looping -> back off.
         sleep(backoff).await;
         backoff = (backoff * 2).min(Duration::from_secs(30));
     }

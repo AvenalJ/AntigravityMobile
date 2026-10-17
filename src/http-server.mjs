@@ -796,7 +796,7 @@ app.post('/api/setup/helper/start', localhostOnly, (req, res) => {
     if (!exe) return res.status(404).json({ success: false, error: 'Helper not built yet.' });
     if (HelperBridge.isConnected()) return res.json({ success: true, alreadyConnected: true });
     try {
-        spawn(exe, [], { detached: true, stdio: 'ignore', cwd: PROJECT_ROOT }).unref();
+        spawn(exe, [], { detached: true, stdio: 'ignore', cwd: PROJECT_ROOT, windowsHide: true, env: { ...process.env, HELPER_NO_SUPERVISE: '1' } }).unref();
         res.json({ success: true });
     } catch (e) { res.status(500).json({ success: false, error: e.message }); }
 });
