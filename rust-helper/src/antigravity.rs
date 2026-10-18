@@ -26,14 +26,17 @@ fn find_exe() -> Option<PathBuf> {
     }
     let mut cands: Vec<PathBuf> = Vec::new();
     if let Ok(local) = std::env::var("LOCALAPPDATA") {
+        cands.push(PathBuf::from(&local).join("Programs/Antigravity IDE/Antigravity IDE.exe"));
         cands.push(PathBuf::from(&local).join("Programs/Antigravity/Antigravity.exe"));
         cands.push(PathBuf::from(&local).join("Antigravity/Antigravity.exe"));
     }
     if let Ok(pf) = std::env::var("ProgramFiles") {
-        cands.push(PathBuf::from(pf).join("Antigravity/Antigravity.exe"));
+        cands.push(PathBuf::from(&pf).join("Antigravity IDE/Antigravity IDE.exe"));
+        cands.push(PathBuf::from(&pf).join("Antigravity/Antigravity.exe"));
     }
     if let Ok(pf86) = std::env::var("ProgramFiles(x86)") {
-        cands.push(PathBuf::from(pf86).join("Antigravity/Antigravity.exe"));
+        cands.push(PathBuf::from(&pf86).join("Antigravity IDE/Antigravity IDE.exe"));
+        cands.push(PathBuf::from(&pf86).join("Antigravity/Antigravity.exe"));
     }
     cands.into_iter().find(|p| p.is_file())
 }
