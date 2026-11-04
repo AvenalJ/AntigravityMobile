@@ -20,7 +20,7 @@
  */
 
 export const SELECTORS = {
-    version: '2.0',
+    version: '2.1',
 
     // Most durable anchor: the chat panel itself (survives ask-prompts).
     conversationView: '[data-testid="conversation-view"]',
@@ -166,30 +166,55 @@ function buildExtractionScript(sel) {
 
         // trajectory summary toggle ("Worked for Xs") + any expanded steps
         const buttons = [...art.querySelectorAll('button')];
-        const workBtn = buttons.find(b => workedRe.test((b.innerText || '').trim()));
+        const workBtn = buttons.find(b => b.getAttribute('data-testid') === 'worked-for-collapsible' || workedRe.test((b.textContent || b.innerText || '').trim()));
         if (workBtn) {
-            out.worked = (workBtn.innerText || '').replace(/\\s+/g, ' ').trim();
+            out.worked = (workBtn.textContent || workBtn.innerText || '').replace(/\\s+/g, ' ').trim();
             const region = workBtn.closest('div');
             // step rows only present if the user has the trajectory expanded
             if (region) {
                 const seen = new Set();
                 region.querySelectorAll('.min-w-0.grow').forEach(row => {
-                    const s = classifyStep(row.innerText || '');
+                    const s = classifyStep(row.textContent || row.innerText || '');
                     if (s && !seen.has(s.text)) { seen.add(s.text); out.activity.push(s); }
                 });
             }
         }
 
+        // in-progress tool execution group
+        const activeTool = buttons.find(b => b.getAttribute('data-testid') === 'tool-group-collapsible');
+        if (activeTool) {
+            const toolName = (activeTool.textContent || activeTool.innerText || '').replace(/\\s+/g, ' ').trim();
+            if (toolName) out.activity.push({ kind: 'run', text: toolName });
+        }
+
         // answer prose (markdown) — simplified to whitelisted tags
-        const prose = art.querySelector('[class*="' + SEL.answerProseClass + '"]');
+        let prose = art.querySelector('[class*="' + SEL.answerProseClass + '"]');
+        if (!prose) {
+            const candidates = [...art.querySelectorAll('div.px-2.py-1, div.gap-2, div.markdown, [class*="markdown"]')];
+            for (const c of candidates) {
+                if (c.closest('[data-testid="worked-for-collapsible"]') || c.closest('[data-testid="tool-group-collapsible"]') || c.closest('[data-testid="turn-cards-container"]')) continue;
+                if (c.querySelector('p, pre, ul, ol, h1, h2, h3, blockquote, code, table') || (c.textContent.trim().length > 0 && !c.querySelector('button'))) {
+                    prose = c;
+                    break;
+                }
+            }
+        }
+        if (!prose) {
+            const p = [...art.querySelectorAll('p, pre')].find(el =>
+                !el.closest('[data-testid="worked-for-collapsible"]') &&
+                !el.closest('[data-testid="tool-group-collapsible"]') &&
+                !el.closest('[data-testid="turn-cards-container"]')
+            );
+            if (p) prose = p.parentElement;
+        }
         if (prose) out.text = clean(prose).trim();
 
         // change summary: "N files changed", +adds / -dels
-        const txt = (art.innerText || '');
+        const txt = (art.innerText || art.textContent || '');
         const cm = txt.match(/(\\d+)\\s+files?\\s+changed/i);
         if (cm) {
-            const adds = [...art.querySelectorAll('[class*="text-green-5"]')].map(e => e.innerText).join(' ');
-            const dels = [...art.querySelectorAll('[class*="text-red-5"]')].map(e => e.innerText).join(' ');
+            const adds = [...art.querySelectorAll('[class*="text-green-5"]')].map(e => e.innerText || e.textContent).join(' ');
+            const dels = [...art.querySelectorAll('[class*="text-red-5"]')].map(e => e.innerText || e.textContent).join(' ');
             out.changes = {
                 summary: cm[0],
                 add: (adds.match(/\\d+/) || [''])[0],
@@ -197,16 +222,22 @@ function buildExtractionScript(sel) {
             };
         }
 
-        // live action buttons (Run / Accept / Reject) — forwarded via xpath
+        // live action buttons (Run / Accept / Reject / Subagent Approve / Deny) — forwarded via xpath
         buttons.forEach(b => {
+            const testId = b.getAttribute('data-testid') || '';
             const label = (b.innerText || b.getAttribute('aria-label') || '').trim().slice(0, 40);
-            if (!label) return;
-            if (acceptRe.test(label)) out.actions.push({ label, xpath: xpath(b), kind: 'accept' });
-            else if (rejectRe.test(label)) out.actions.push({ label, xpath: xpath(b), kind: 'reject' });
+            if (testId === 'subagent-approve') {
+                out.actions.push({ label: label || 'Approve', xpath: xpath(b), kind: 'accept' });
+            } else if (testId === 'subagent-deny') {
+                out.actions.push({ label: label || 'Deny', xpath: xpath(b), kind: 'reject' });
+            } else if (label) {
+                if (acceptRe.test(label)) out.actions.push({ label, xpath: xpath(b), kind: 'accept' });
+                else if (rejectRe.test(label)) out.actions.push({ label, xpath: xpath(b), kind: 'reject' });
+            }
         });
 
-        // working = a trajectory is shown but no answer text yet
-        out.working = !!out.worked && !out.text && out.actions.length === 0;
+        // working = trajectory/tool active but no answer text yet
+        out.working = (!!out.worked || !!activeTool) && !out.text && out.actions.length === 0;
         return out;
     }
 
@@ -226,47 +257,79 @@ function buildExtractionScript(sel) {
         }
     });
 
-    // ---- pending multiple-choice prompt (radiogroup ask-card) -------------
+    // ---- pending multiple-choice prompt (ask-question questionnaire or legacy radiogroup) ---
     // Antigravity asks the user a question with radio options + an optional
     // free-text "Other" answer + Submit/Skip. We surface it so mobile can answer.
     let prompt = null;
-    const rg = document.querySelector('[role="radiogroup"]');
-    if (rg) {
-        // the ask-card is the nearest ancestor that also holds Submit/Skip
-        let card = rg;
-        for (let i = 0; i < 8 && card; i++) { if (/\\bSubmit\\b/.test(card.innerText || '')) break; card = card.parentElement; }
-        card = card || rg.parentElement;
-
-        // question text: nearest prose block before the radiogroup
+    const askOptions = [...document.querySelectorAll('[data-testid="ask-question-option"]')];
+    if (askOptions.length > 0) {
         let question = '';
-        const proses = [...card.querySelectorAll('[class*="' + SEL.answerProseClass + '"]')];
-        if (proses.length) question = (proses[0].innerText || '').replace(/\\s+/g, ' ').trim();
-
-        // options: each <label> with a radio; ignore the empty "Other" radio row
-        const options = [];
-        let otherXpath = null;
-        rg.querySelectorAll('label').forEach(l => {
-            const ta = l.querySelector('textarea, input[type="text"]');
-            if (ta) { otherXpath = xpath(ta); return; } // the "Other (write your answer)" row
-            const label = (l.innerText || '').replace(/^\\s*\\d+\\s*/, '').replace(/\\s+/g, ' ').trim();
-            if (label) options.push({ label, xpath: xpath(l) });
-        });
-        // also catch an "Other" textarea that lives outside the labels
-        if (!otherXpath) {
-            const ta = card.querySelector('textarea[placeholder*="Other"], textarea[placeholder*="write your answer"]');
-            if (ta) otherXpath = xpath(ta);
+        const headerEl = document.querySelector('[data-testid="ask-question-header-text"]');
+        if (headerEl) {
+            question = (headerEl.innerText || headerEl.textContent || '').replace(/\\s+/g, ' ').trim();
         }
 
-        // Submit / Skip buttons
-        let submitXpath = null, skipXpath = null;
-        card.querySelectorAll('button').forEach(b => {
-            const t = (b.innerText || '').trim();
-            if (/^Submit/i.test(t)) submitXpath = xpath(b);
-            else if (/^Skip/i.test(t)) skipXpath = xpath(b);
+        const options = [];
+        askOptions.forEach(opt => {
+            const textEl = opt.querySelector('[data-testid="ask-question-option-text"]');
+            const label = (textEl ? textEl.innerText || textEl.textContent : opt.innerText || opt.textContent || '')
+                .replace(/^\\s*\\d+\\s*/, '')
+                .replace(/\\s+/g, ' ')
+                .trim();
+            const input = opt.querySelector('input');
+            const targetEl = input || opt;
+            if (label) options.push({ label, xpath: xpath(targetEl) });
         });
+
+        let otherXpath = null;
+        const writeIn = document.querySelector('[data-testid="ask-question-writein"]');
+        if (writeIn) otherXpath = xpath(writeIn);
+
+        let submitXpath = null;
+        const submitBtn = document.querySelector('[data-testid="interaction-continue-button"]');
+        if (submitBtn) submitXpath = xpath(submitBtn);
+
+        let skipXpath = null;
+        const skipBtn = document.querySelector('[data-testid="interaction-skip-button"], [data-testid="ask-question-dismiss-button"]');
+        if (skipBtn) skipXpath = xpath(skipBtn);
 
         if (options.length || otherXpath) {
             prompt = { type: 'choice', question, options, otherXpath, submitXpath, skipXpath };
+        }
+    } else {
+        const rg = document.querySelector('[role="radiogroup"]');
+        if (rg) {
+            let card = rg;
+            for (let i = 0; i < 8 && card; i++) { if (/\\bSubmit\\b/.test(card.innerText || '')) break; card = card.parentElement; }
+            card = card || rg.parentElement;
+
+            let question = '';
+            const proses = [...card.querySelectorAll('[class*="' + SEL.answerProseClass + '"]')];
+            if (proses.length) question = (proses[0].innerText || '').replace(/\\s+/g, ' ').trim();
+
+            const options = [];
+            let otherXpath = null;
+            rg.querySelectorAll('label').forEach(l => {
+                const ta = l.querySelector('textarea, input[type="text"]');
+                if (ta) { otherXpath = xpath(ta); return; }
+                const label = (l.innerText || '').replace(/^\\s*\\d+\\s*/, '').replace(/\\s+/g, ' ').trim();
+                if (label) options.push({ label, xpath: xpath(l) });
+            });
+            if (!otherXpath) {
+                const ta = card.querySelector('textarea[placeholder*="Other"], textarea[placeholder*="write your answer"]');
+                if (ta) otherXpath = xpath(ta);
+            }
+
+            let submitXpath = null, skipXpath = null;
+            card.querySelectorAll('button').forEach(b => {
+                const t = (b.innerText || '').trim();
+                if (/^Submit/i.test(t)) submitXpath = xpath(b);
+                else if (/^Skip/i.test(t)) skipXpath = xpath(b);
+            });
+
+            if (options.length || otherXpath) {
+                prompt = { type: 'choice', question, options, otherXpath, submitXpath, skipXpath };
+            }
         }
     }
 
@@ -315,6 +378,26 @@ function buildExtractionScript(sel) {
  * conversation id is in the page URL (`/c/<uuid>`).
  */
 const CONVERSATIONS_SCRIPT = `(() => {
+    // Strategy 1: Modern 2.0 / IDE sidebar conversation rows
+    const rows = [...document.querySelectorAll('[data-testid="conversation-row-sidebar"]')];
+    if (rows.length > 0) {
+        let activeId = null;
+        const conversations = rows.map(r => {
+            const id = r.getAttribute('data-cascade-id') ||
+                       r.querySelector('a')?.getAttribute('href')?.match(/\\/c\\/([0-9a-f-]+)/i)?.[1] ||
+                       '';
+            const isSelected = r.getAttribute('data-selected') === 'true';
+            if (isSelected && id) activeId = id;
+            const title = r.querySelector('a')?.getAttribute('aria-label') ||
+                          r.querySelector('span.truncate')?.textContent?.trim() ||
+                          (r.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 80);
+            const project = r.getAttribute('data-subtext') || '';
+            return { id, title, project, active: isSelected };
+        }).filter(c => c.id && c.title);
+        return { found: true, activeId, conversations };
+    }
+
+    // Strategy 2: Legacy convo pills (web app)
     const m = location.pathname.match(/\\/c\\/([0-9a-f-]+)/i);
     const activeId = m ? m[1] : null;
     const pills = [...document.querySelectorAll('[data-testid^="convo-pill-"]')];
@@ -327,10 +410,6 @@ const CONVERSATIONS_SCRIPT = `(() => {
     return { found: pills.length > 0, activeId, conversations };
 })()`;
 
-/**
- * List conversations (history) from a CDP context.
- * @returns {Promise<object|null>} { found, activeId, conversations } or null
- */
 export async function extractConversations(cdp, contextId) {
     try {
         const result = await cdp.call('Runtime.evaluate', {
@@ -348,9 +427,20 @@ export async function extractConversations(cdp, contextId) {
  */
 export function buildSwitchConversationScript(id) {
     return `(() => {
+        // Modern sidebar row
+        const row = document.querySelector('[data-testid="conversation-row-sidebar"][data-cascade-id="' + ${JSON.stringify(id)} + '"]');
+        if (row) {
+            const link = row.querySelector('a');
+            if (link) { link.click(); return { found: true }; }
+            row.click();
+            return { found: true };
+        }
+        const link = document.querySelector('a[href*="' + ${JSON.stringify(id)} + '"]');
+        if (link) { link.click(); return { found: true }; }
+
+        // Legacy pill fallback
         const pill = document.querySelector('[data-testid="convo-pill-' + ${JSON.stringify(id)} + '"]');
         if (!pill) return { found: false };
-        // prefer a clickable ancestor (anchor/button/row) if present
         let target = pill;
         for (let i = 0; i < 5 && target; i++) {
             if (target.tagName === 'A' || target.tagName === 'BUTTON' || target.getAttribute('role') === 'button') break;
@@ -363,9 +453,6 @@ export function buildSwitchConversationScript(id) {
     })()`;
 }
 
-/**
- * Switch the IDE to a conversation by id (clicks its history pill).
- */
 export async function switchConversation(cdp, contextId, id) {
     try {
         const result = await cdp.call('Runtime.evaluate', {
@@ -377,7 +464,9 @@ export async function switchConversation(cdp, contextId, id) {
 
 /** Click the IDE's "New Conversation" button (aria-label). */
 const NEW_CONVERSATION_SCRIPT = `(() => {
-    const btn = document.querySelector('[aria-label="New Conversation"]')
+    const btn = document.querySelector('[data-testid="extension-new-conversation"]')
+        || document.querySelector('[data-testid="new-conversation-button"]')
+        || document.querySelector('[aria-label="New Conversation"]')
         || [...document.querySelectorAll('button')].find(b => /new conversation/i.test((b.innerText || '').trim()));
     if (!btn) return { found: false };
     btn.click();

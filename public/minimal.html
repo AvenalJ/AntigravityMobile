@@ -1049,16 +1049,16 @@
         }
 
         async function forwardAction(xpath, label, btn) {
-            btn.disabled = true; btn.style.opacity = '0.5';
+            if (btn) { btn.disabled = true; btn.style.opacity = '0.5'; }
             try {
                 const res = await authFetch('/api/cdp/click', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ xpath, text: label })
                 });
                 const r = await res.json();
-                showToast(r.success ? `${label}` : (r.error || 'Click failed'), r.success ? 'success' : 'error');
+                showToast(r.success ? `✓ ${label}` : (r.error || 'Click failed'), r.success ? 'success' : 'error');
             } catch (e) { showToast('Network error', 'error'); }
-            finally { setTimeout(() => { btn.disabled = false; btn.style.opacity = ''; }, 600); }
+            finally { if (btn) setTimeout(() => { btn.disabled = false; btn.style.opacity = ''; }, 600); }
         }
 
         function renderPrompt(p) {
@@ -1086,14 +1086,13 @@
         }
 
         async function answerPrompt(payload, card) {
-            card.querySelectorAll('button, input').forEach(b => b.disabled = true);
-            card.style.opacity = '0.6';
+            if (card) { card.querySelectorAll('button, input').forEach(b => b.disabled = true); card.style.opacity = '0.6'; }
             try {
                 const res = await authFetch('/api/chat/answer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
                 const r = await res.json();
-                if (r.success) { showToast('Answer sent', 'success'); lastCascadeHash = null; setTimeout(fetchChat, 400); }
-                else { showToast(r.error || 'Failed', 'error'); card.querySelectorAll('button, input').forEach(b => b.disabled = false); card.style.opacity = ''; }
-            } catch (e) { showToast('Network error', 'error'); card.querySelectorAll('button, input').forEach(b => b.disabled = false); card.style.opacity = ''; }
+                if (r.success) { showToast('✓ Answer sent', 'success'); lastCascadeHash = null; setTimeout(fetchChat, 400); }
+                else { showToast(r.error || 'Failed', 'error'); if (card) { card.querySelectorAll('button, input').forEach(b => b.disabled = false); card.style.opacity = ''; } }
+            } catch (e) { showToast('Network error', 'error'); if (card) { card.querySelectorAll('button, input').forEach(b => b.disabled = false); card.style.opacity = ''; } }
         }
 
         // ---- artifact viewer ----
@@ -1134,6 +1133,9 @@
                     const hash = data.messages.length + '|' + (last.text || '').length + '|' + (last.worked || '') + '|' + (last.actions || []).map(a => a.label).join(',') + '|' + pk + '|' + ak;
                     if (hash === lastCascadeHash) return;
                     lastCascadeHash = hash;
+                    window.latestPrompt = data.prompt || null;
+                    const lastMsg = (data.messages && data.messages[data.messages.length - 1]) || {};
+                    window.latestActions = lastMsg.actions || [];
 
                     if (data.model) { const lbl = document.getElementById('modelLabel'); if (lbl) lbl.textContent = data.model; }
                     const atBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 120;
@@ -1254,7 +1256,56 @@
             }
         }
 
-        function sendQuick(cmd) {
+        async function sendQuick(cmd) {
+            const c = (cmd || '').toLowerCase().trim();
+
+            if (c === 'stop') {
+                try {
+                    const res = await authFetch('/api/chat/stop-agent', { method: 'POST' });
+                    const r = await res.json();
+                    if (r.success) { showToast('Agent stopped', 'success'); return; }
+                } catch (e) { }
+            }
+
+            const prompt = window.latestPrompt;
+            if (prompt) {
+                if (c === 'yes' || c === 'continue') {
+                    const opt = (prompt.options || []).find(o =>
+                        /\b(yes|proceed|continue|allow|approve|agree|ok)\b/i.test(o.label) ||
+                        /\(recommended\)/i.test(o.label)
+                    ) || (prompt.options && prompt.options[0]);
+                    if (opt) {
+                        await answerPrompt({ kind: 'option', optionXpath: opt.xpath, submitXpath: prompt.submitXpath });
+                        return;
+                    } else if (prompt.submitXpath) {
+                        await answerPrompt({ kind: 'submit', submitXpath: prompt.submitXpath });
+                        return;
+                    }
+                } else if (c === 'no') {
+                    const opt = (prompt.options || []).find(o =>
+                        /\b(no|deny|reject|cancel|disagree|skip)\b/i.test(o.label)
+                    );
+                    if (opt) {
+                        await answerPrompt({ kind: 'option', optionXpath: opt.xpath, submitXpath: prompt.submitXpath });
+                        return;
+                    } else if (prompt.skipXpath) {
+                        await answerPrompt({ kind: 'skip', skipXpath: prompt.skipXpath });
+                        return;
+                    }
+                }
+            }
+
+            const actions = window.latestActions || [];
+            if (actions.length > 0) {
+                if (c === 'yes' || c === 'continue') {
+                    const accept = actions.find(a => a.kind === 'accept' || /^(run|accept|allow|yes|continue|proceed|approve|ok)\b/i.test(a.label));
+                    if (accept) { await forwardAction(accept.xpath, accept.label); return; }
+                } else if (c === 'no') {
+                    const reject = actions.find(a => a.kind === 'reject' || /^(reject|deny|no|cancel|discard)\b/i.test(a.label));
+                    if (reject) { await forwardAction(reject.xpath, reject.label); return; }
+                }
+            }
+
             document.getElementById('chatInput').value = cmd;
             sendMessage();
         }

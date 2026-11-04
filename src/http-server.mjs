@@ -1690,7 +1690,7 @@ app.post('/api/chat/conversations/new', async (req, res) => {
 });
 
 // Answer a pending multiple-choice prompt from mobile.
-// body: { kind: 'option'|'other'|'skip', optionXpath?, text?, otherXpath?, submitXpath?, skipXpath? }
+// body: { kind: 'option'|'other'|'skip'|'submit', optionXpath?, text?, otherXpath?, submitXpath?, skipXpath? }
 app.post('/api/chat/answer', async (req, res) => {
     try {
         const { kind, optionXpath, text, otherXpath, submitXpath, skipXpath } = req.body || {};
@@ -1698,6 +1698,12 @@ app.post('/api/chat/answer', async (req, res) => {
         if (kind === 'skip') {
             if (!skipXpath) return res.status(400).json({ success: false, error: 'skipXpath required' });
             const r = await CDP.clickElementByXPath(skipXpath);
+            return res.json(r);
+        }
+
+        if (kind === 'submit') {
+            if (!submitXpath) return res.status(400).json({ success: false, error: 'submitXpath required' });
+            const r = await CDP.clickElementByXPath(submitXpath);
             return res.json(r);
         }
 
@@ -1717,6 +1723,16 @@ app.post('/api/chat/answer', async (req, res) => {
             return res.json(sub);
         }
         res.json(sel);
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// Stop / abort current running agent / task in the IDE
+app.post('/api/chat/stop-agent', async (req, res) => {
+    try {
+        const r = await CDP.stopAgent();
+        res.json(r);
     } catch (e) {
         res.status(500).json({ success: false, error: e.message });
     }

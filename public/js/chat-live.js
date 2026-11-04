@@ -355,8 +355,10 @@
 
         // Forward an action-button tap to the real IDE via CDP click
         async function forwardAction(xpath, label, btn) {
-            btn.disabled = true;
-            btn.style.opacity = '0.5';
+            if (btn) {
+                btn.disabled = true;
+                btn.style.opacity = '0.5';
+            }
             try {
                 const res = await authFetch('/api/cdp/click', {
                     method: 'POST',
@@ -368,7 +370,9 @@
             } catch (e) {
                 showToast('Network error', 'error');
             } finally {
-                setTimeout(() => { btn.disabled = false; btn.style.opacity = ''; }, 600);
+                if (btn) {
+                    setTimeout(() => { btn.disabled = false; btn.style.opacity = ''; }, 600);
+                }
             }
         }
 
@@ -415,8 +419,10 @@
         }
 
         async function answerPrompt(payload, btn, card) {
-            card.querySelectorAll('button, input').forEach(b => b.disabled = true);
-            card.style.opacity = '0.6';
+            if (card) {
+                card.querySelectorAll('button, input').forEach(b => b.disabled = true);
+                card.style.opacity = '0.6';
+            }
             try {
                 const res = await authFetch('/api/chat/answer', {
                     method: 'POST',
@@ -430,15 +436,22 @@
                     setTimeout(fetchLiveChat, 400);
                 } else {
                     showToast(result.error || 'Failed to send', 'error');
-                    card.querySelectorAll('button, input').forEach(b => b.disabled = false);
-                    card.style.opacity = '';
+                    if (card) {
+                        card.querySelectorAll('button, input').forEach(b => b.disabled = false);
+                        card.style.opacity = '';
+                    }
                 }
             } catch (e) {
                 showToast('Network error', 'error');
-                card.querySelectorAll('button, input').forEach(b => b.disabled = false);
-                card.style.opacity = '';
+                if (card) {
+                    card.querySelectorAll('button, input').forEach(b => b.disabled = false);
+                    card.style.opacity = '';
+                }
             }
         }
+
+        window.forwardAction = forwardAction;
+        window.answerPrompt = answerPrompt;
 
         // ---- Artifact viewer (walkthroughs, reports, docs) ----------------
         let artifactOverlayOpen = false;
@@ -513,6 +526,9 @@
                         (last.worked || '') + '|' + (last.actions || []).map(a => a.label).join(',') + '|' + promptKey + '|' + artKey;
                     if (hash === lastCascadeHash) return;
                     lastCascadeHash = hash;
+                    window.latestPrompt = data.prompt || null;
+                    const lastMsg = (data.messages && data.messages[data.messages.length - 1]) || {};
+                    window.latestActions = lastMsg.actions || [];
 
                     const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 120;
 

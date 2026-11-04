@@ -74,11 +74,14 @@ async function findLanguageServer() {
         for (const proc of processes) {
             const cmdLine = proc.CommandLine || '';
 
-            // Check if this is the Antigravity language server
-            if (!cmdLine.includes('--extension_server_port') || !cmdLine.includes('--csrf_token')) {
+            // Check if this is the Antigravity language server / agy hub
+            if (!cmdLine.includes('--csrf_token')) {
                 continue;
             }
-            if (!/--app_data_dir\s+antigravity\b/i.test(cmdLine)) {
+            if (!cmdLine.includes('--extension_server_port') && !cmdLine.includes('--hub-port') && !cmdLine.includes('--hub')) {
+                continue;
+            }
+            if (!/--app_data_dir[\s=]+antigravity\b/i.test(cmdLine)) {
                 continue;
             }
 
