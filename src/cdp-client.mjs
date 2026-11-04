@@ -70,7 +70,7 @@ export async function getSources() {
 }
 
 /** Candidate ports honouring the current preference. */
-function candidatePorts() {
+export function candidatePorts() {
     const sources = devToolsSources();
     if (cdpPreference === 'ide') {
         return [...sources.filter(s => s.id === 'ide').map(s => s.port), 9222];
@@ -1954,168 +1954,263 @@ export async function respondToApproval(action) {
  * Used for the "Other (write your answer)" field in multiple-choice prompts.
  */
 export async function fillAndSubmitByXPath(xpath, text, submitXpath = null) {
-    const target = await findEditorTarget();
-    if (!target) throw new Error('No editor target found');
+    const allTargets = await getTargets();
+    const candidates = allTargets.filter(t => t.type === 'page' || t.type === 'iframe');
+    candidates.sort((a, b) => (b.url?.includes('extensionView=true') ? 1 : 0) - (a.url?.includes('extensionView=true') ? 1 : 0));
+    if (!candidates.length) throw new Error('No targets found');
 
-    return new Promise(async (resolve) => {
-        const { default: WebSocket } = await import('ws');
-        const ws = new WebSocket(target.webSocketDebuggerUrl);
-        const contexts = [];
-        let messageId = 1;
-        const pending = new Map();
+    const tryFillInTarget = async (target) => {
+        return new Promise(async (resolve) => {
+            const { default: WebSocket } = await import('ws');
+            const ws = new WebSocket(target.webSocketDebuggerUrl);
+            const contexts = [];
+            let messageId = 1;
+            const pending = new Map();
 
-        const call = (method, params = {}) => new Promise((res, rej) => {
-            const id = messageId++;
-            pending.set(id, { resolve: res, reject: rej });
-            ws.send(JSON.stringify({ id, method, params }));
-            setTimeout(() => { if (pending.has(id)) { pending.delete(id); rej(new Error('Timeout')); } }, 4000);
-        });
+            const call = (method, params = {}) => new Promise((res, rej) => {
+                const id = messageId++;
+                pending.set(id, { resolve: res, reject: rej });
+                ws.send(JSON.stringify({ id, method, params }));
+                setTimeout(() => { if (pending.has(id)) { pending.delete(id); rej(new Error('Timeout')); } }, 4000);
+            });
 
-        ws.on('message', (msg) => {
-            try {
-                const data = JSON.parse(msg.toString());
-                if (data.id && pending.has(data.id)) {
-                    const { resolve, reject } = pending.get(data.id);
-                    pending.delete(data.id);
-                    if (data.error) reject(new Error(data.error.message)); else resolve(data.result);
-                } else if (data.method === 'Runtime.executionContextCreated') {
-                    contexts.push(data.params.context);
+            ws.on('message', (msg) => {
+                try {
+                    const data = JSON.parse(msg.toString());
+                    if (data.id && pending.has(data.id)) {
+                        const { resolve, reject } = pending.get(data.id);
+                        pending.delete(data.id);
+                        if (data.error) reject(new Error(data.error.message)); else resolve(data.result);
+                    } else if (data.method === 'Runtime.executionContextCreated') {
+                        contexts.push(data.params.context);
+                    }
+                } catch (e) { }
+            });
+
+            ws.on('open', async () => {
+                try {
+                    await call('Runtime.enable', {});
+                    await new Promise(r => setTimeout(r, 400));
+
+                    const SCRIPT = `(async () => {
+                        const find = (xp) => document.evaluate(xp, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+                        try {
+                            const el = find(${JSON.stringify(xpath)});
+                            if (!el) return { found: false };
+                            el.focus();
+                            const proto = el.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+                            const setter = Object.getOwnPropertyDescriptor(proto, 'value').set;
+                            if (setter) {
+                                setter.call(el, ${JSON.stringify(text)});
+                            } else {
+                                el.value = ${JSON.stringify(text)};
+                            }
+                            el.dispatchEvent(new Event('input', { bubbles: true }));
+                            el.dispatchEvent(new Event('change', { bubbles: true }));
+                            await new Promise(r => setTimeout(r, 150));
+                            ${submitXpath ? `const sb = find(${JSON.stringify(submitXpath)}); if (sb) sb.click();` : ''}
+                            return { found: true, filled: true };
+                        } catch(e) { return { found: false, error: e.message }; }
+                    })()`;
+
+                    for (const ctx of contexts) {
+                        try {
+                            const result = await call('Runtime.evaluate', {
+                                expression: SCRIPT, returnByValue: true, awaitPromise: true, contextId: ctx.id
+                            });
+                            const val = result.result?.value;
+                            if (val?.found && val.filled) {
+                                ws.close();
+                                resolve({ success: true });
+                                return;
+                            }
+                        } catch (e) { }
+                    }
+                    ws.close();
+                    resolve({ success: false });
+                } catch (e) {
+                    ws.close();
+                    resolve({ success: false, error: e.message });
                 }
-            } catch (e) { }
+            });
+
+            ws.on('error', () => resolve({ success: false }));
         });
+    };
 
-        ws.on('open', async () => {
-            try {
-                await call('Runtime.enable', {});
-                await new Promise(r => setTimeout(r, 400));
-
-                const SCRIPT = `(async () => {
-                    const find = (xp) => document.evaluate(xp, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
-                    try {
-                        const el = find(${JSON.stringify(xpath)});
-                        if (!el) return { found: false };
-                        el.focus();
-                        const proto = el.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
-                        const setter = Object.getOwnPropertyDescriptor(proto, 'value').set;
-                        setter.call(el, ${JSON.stringify(text)});
-                        el.dispatchEvent(new Event('input', { bubbles: true }));
-                        el.dispatchEvent(new Event('change', { bubbles: true }));
-                        await new Promise(r => setTimeout(r, 150));
-                        ${submitXpath ? `const sb = find(${JSON.stringify(submitXpath)}); if (sb) sb.click();` : ''}
-                        return { found: true, filled: true };
-                    } catch(e) { return { found: false, error: e.message }; }
-                })()`;
-
-                for (const ctx of contexts) {
-                    try {
-                        const result = await call('Runtime.evaluate', {
-                            expression: SCRIPT, returnByValue: true, awaitPromise: true, contextId: ctx.id
-                        });
-                        const val = result.result?.value;
-                        if (val?.found && val.filled) {
-                            ws.close();
-                            resolve({ success: true });
-                            return;
-                        }
-                    } catch (e) { }
-                }
-                ws.close();
-                resolve({ success: false, error: 'Input not found in any context' });
-            } catch (e) {
-                ws.close();
-                resolve({ success: false, error: e.message });
-            }
-        });
-
-        ws.on('error', () => resolve({ success: false, error: 'WebSocket error' }));
-    });
+    for (const t of candidates) {
+        const res = await tryFillInTarget(t);
+        if (res && res.success) return res;
+    }
+    return { success: false, error: 'Input not found in any target or context' };
 }
 
 export async function clickElementByXPath(xpath) {
-    const target = await findEditorTarget();
-    if (!target) throw new Error('No editor target found');
+    const allTargets = await getTargets();
+    const candidates = allTargets.filter(t => t.type === 'page' || t.type === 'iframe');
+    // Prioritize extensionView/chat targets first
+    candidates.sort((a, b) => (b.url?.includes('extensionView=true') ? 1 : 0) - (a.url?.includes('extensionView=true') ? 1 : 0));
+    if (!candidates.length) throw new Error('No targets found');
 
-    return new Promise(async (resolve) => {
-        const { default: WebSocket } = await import('ws');
-        const ws = new WebSocket(target.webSocketDebuggerUrl);
+    const tryClickInTarget = async (target) => {
+        return new Promise(async (resolve) => {
+            const { default: WebSocket } = await import('ws');
+            const ws = new WebSocket(target.webSocketDebuggerUrl);
 
-        const contexts = [];
-        let messageId = 1;
-        const pending = new Map();
+            const contexts = [];
+            let messageId = 1;
+            const pending = new Map();
 
-        const call = (method, params = {}) => new Promise((res, rej) => {
-            const id = messageId++;
-            pending.set(id, { resolve: res, reject: rej });
-            ws.send(JSON.stringify({ id, method, params }));
-            setTimeout(() => {
-                if (pending.has(id)) { pending.delete(id); rej(new Error('Timeout')); }
-            }, 4000);
-        });
+            const call = (method, params = {}) => new Promise((res, rej) => {
+                const id = messageId++;
+                pending.set(id, { resolve: res, reject: rej });
+                ws.send(JSON.stringify({ id, method, params }));
+                setTimeout(() => {
+                    if (pending.has(id)) { pending.delete(id); rej(new Error('Timeout')); }
+                }, 4000);
+            });
 
-        ws.on('message', (msg) => {
-            try {
-                const data = JSON.parse(msg.toString());
-                if (data.id && pending.has(data.id)) {
-                    const { resolve, reject } = pending.get(data.id);
-                    pending.delete(data.id);
-                    if (data.error) reject(new Error(data.error.message));
-                    else resolve(data.result);
-                } else if (data.method === 'Runtime.executionContextCreated') {
-                    contexts.push(data.params.context);
-                }
-            } catch (e) { }
-        });
-
-        ws.on('open', async () => {
-            try {
-                await call('Runtime.enable', {});
-                await new Promise(r => setTimeout(r, 400));
-
-                // NOTE: Antigravity 2.0 has no #cascade element, so we no longer
-                // gate on it. We evaluate the xpath in every context and click in
-                // whichever one actually contains the target element.
-                const SCRIPT = `(() => {
-                    try {
-                        const el = document.evaluate(
-                            ${JSON.stringify(xpath)},
-                            document,
-                            null,
-                            XPathResult.FIRST_ORDERED_NODE_TYPE,
-                            null
-                        ).singleNodeValue;
-                        if (!el) return { found: false };
-                        el.scrollIntoView({ block: 'center' });
-                        el.click();
-                        return { found: true, clicked: true, tag: el.tagName, text: (el.innerText || '').slice(0, 60) };
-                    } catch(e) {
-                        return { found: false, error: e.message };
+            ws.on('message', (msg) => {
+                try {
+                    const data = JSON.parse(msg.toString());
+                    if (data.id && pending.has(data.id)) {
+                        const { resolve, reject } = pending.get(data.id);
+                        pending.delete(data.id);
+                        if (data.error) reject(new Error(data.error.message));
+                        else resolve(data.result);
+                    } else if (data.method === 'Runtime.executionContextCreated') {
+                        contexts.push(data.params.context);
                     }
-                })()`;
+                } catch (e) { }
+            });
 
-                for (const ctx of contexts) {
-                    try {
-                        const result = await call('Runtime.evaluate', {
-                            expression: SCRIPT,
-                            returnByValue: true,
-                            contextId: ctx.id
-                        });
-                        const val = result.result?.value;
-                        if (val?.found && val.clicked) {
-                            ws.close();
-                            resolve({ success: true, tag: val.tag, text: val.text });
-                            return;
+            ws.on('open', async () => {
+                try {
+                    await call('Runtime.enable', {});
+                    await new Promise(r => setTimeout(r, 400));
+
+                    const SCRIPT = `(() => {
+                        try {
+                            const el = document.evaluate(
+                                ${JSON.stringify(xpath)},
+                                document,
+                                null,
+                                XPathResult.FIRST_ORDERED_NODE_TYPE,
+                                null
+                            ).singleNodeValue;
+                            if (!el) return { found: false };
+                            el.scrollIntoView({ block: 'center' });
+                            el.click();
+                            if (el.tagName === 'INPUT' && (el.type === 'radio' || el.type === 'checkbox')) {
+                                el.checked = true;
+                                el.dispatchEvent(new Event('change', { bubbles: true }));
+                                el.dispatchEvent(new Event('input', { bubbles: true }));
+                            } else if (el.tagName === 'LABEL') {
+                                const inp = el.querySelector('input') || (el.htmlFor ? document.getElementById(el.htmlFor) : null);
+                                if (inp) {
+                                    inp.checked = true;
+                                    inp.dispatchEvent(new Event('change', { bubbles: true }));
+                                    inp.dispatchEvent(new Event('input', { bubbles: true }));
+                                }
+                            }
+                            return { found: true, clicked: true, tag: el.tagName, text: (el.innerText || el.value || '').slice(0, 60) };
+                        } catch(e) {
+                            return { found: false, error: e.message };
                         }
-                    } catch (e) { }
+                    })()`;
+
+                    for (const ctx of contexts) {
+                        try {
+                            const result = await call('Runtime.evaluate', {
+                                expression: SCRIPT,
+                                returnByValue: true,
+                                contextId: ctx.id
+                            });
+                            const val = result.result?.value;
+                            if (val?.found && val.clicked) {
+                                ws.close();
+                                resolve({ success: true, tag: val.tag, text: val.text });
+                                return;
+                            }
+                        } catch (e) { }
+                    }
+
+                    ws.close();
+                    resolve({ success: false });
+                } catch (e) {
+                    ws.close();
+                    resolve({ success: false, error: e.message });
                 }
+            });
 
-                ws.close();
-                resolve({ success: false, error: 'Element not found in any context' });
-            } catch (e) {
-                ws.close();
-                resolve({ success: false, error: e.message });
-            }
+            ws.on('error', () => resolve({ success: false }));
         });
+    };
 
-        ws.on('error', () => resolve({ success: false, error: 'WebSocket error' }));
-    });
+    for (const t of candidates) {
+        const res = await tryClickInTarget(t);
+        if (res && res.success) return res;
+    }
+
+    return { success: false, error: 'Element not found in any target or context' };
+}
+
+/**
+ * Stop or abort the running agent in the chat view
+ */
+export async function stopAgent() {
+    const allTargets = await getTargets();
+    const candidates = allTargets.filter(t => t.type === 'page' || t.type === 'iframe');
+    candidates.sort((a, b) => (b.url?.includes('extensionView=true') ? 1 : 0) - (a.url?.includes('extensionView=true') ? 1 : 0));
+
+    const SCRIPT = `(() => {
+        const selectors = [
+            '[data-testid="webview-agent-cursor-stop-button"]',
+            '[data-testid="running-selection-stop"]',
+            '[data-testid="running-confirm-stop"]',
+            '[data-testid="running-row-stop"]',
+            '[data-testid="subagent-stop"]',
+            'button[aria-label*="Stop" i]',
+            'button[aria-label*="Cancel" i]'
+        ];
+        for (const sel of selectors) {
+            const btn = document.querySelector(sel);
+            if (btn && btn.offsetParent !== null) {
+                btn.click();
+                return { found: true, stopped: true, selector: sel };
+            }
+        }
+        return { found: false };
+    })()`;
+
+    for (const target of candidates) {
+        try {
+            const { default: WebSocket } = await import('ws');
+            const ws = new WebSocket(target.webSocketDebuggerUrl);
+            const res = await new Promise((resolve) => {
+                let id = 1;
+                const timer = setTimeout(() => { ws.close(); resolve(null); }, 3000);
+                ws.on('message', (d) => {
+                    const msg = JSON.parse(d.toString());
+                    if (msg.id === 1) {
+                        clearTimeout(timer);
+                        ws.close();
+                        resolve(msg.result?.result?.value);
+                    }
+                });
+                ws.on('open', () => {
+                    ws.send(JSON.stringify({
+                        id: 1,
+                        method: 'Runtime.evaluate',
+                        params: { expression: SCRIPT, returnByValue: true }
+                    }));
+                });
+                ws.on('error', () => { clearTimeout(timer); resolve(null); });
+            });
+            if (res?.found && res.stopped) {
+                return { success: true, stopped: true, selector: res.selector };
+            }
+        } catch (e) { }
+    }
+    return { success: false, error: 'Stop button not found or agent is not running' };
 }

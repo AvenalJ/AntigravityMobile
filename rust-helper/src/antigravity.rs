@@ -10,6 +10,8 @@
 use std::net::TcpStream;
 use std::path::PathBuf;
 use std::process::Command;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use std::time::Duration;
 
 const DEBUG_PORT: u16 = 9333;
@@ -24,14 +26,17 @@ fn find_exe() -> Option<PathBuf> {
     }
     let mut cands: Vec<PathBuf> = Vec::new();
     if let Ok(local) = std::env::var("LOCALAPPDATA") {
+        cands.push(PathBuf::from(&local).join("Programs/Antigravity IDE/Antigravity IDE.exe"));
         cands.push(PathBuf::from(&local).join("Programs/Antigravity/Antigravity.exe"));
         cands.push(PathBuf::from(&local).join("Antigravity/Antigravity.exe"));
     }
     if let Ok(pf) = std::env::var("ProgramFiles") {
-        cands.push(PathBuf::from(pf).join("Antigravity/Antigravity.exe"));
+        cands.push(PathBuf::from(&pf).join("Antigravity IDE/Antigravity IDE.exe"));
+        cands.push(PathBuf::from(&pf).join("Antigravity/Antigravity.exe"));
     }
     if let Ok(pf86) = std::env::var("ProgramFiles(x86)") {
-        cands.push(PathBuf::from(pf86).join("Antigravity/Antigravity.exe"));
+        cands.push(PathBuf::from(&pf86).join("Antigravity IDE/Antigravity IDE.exe"));
+        cands.push(PathBuf::from(&pf86).join("Antigravity/Antigravity.exe"));
     }
     cands.into_iter().find(|p| p.is_file())
 }
@@ -43,7 +48,12 @@ fn cdp_reachable() -> bool {
 }
 
 fn antigravity_running() -> bool {
-    Command::new("tasklist")
+    {
+        let mut c = Command::new("tasklist");
+        #[cfg(windows)]
+        c.creation_flags(0x08000000);
+        c
+    }
         .args(["/FI", "IMAGENAME eq Antigravity.exe", "/NH"])
         .output()
         .map(|o| String::from_utf8_lossy(&o.stdout).to_lowercase().contains("antigravity.exe"))
@@ -75,7 +85,12 @@ pub fn ensure_running() {
 
             if antigravity_running() {
                 log::warn!("Antigravity is running without CDP — relaunching it with remote debugging");
-                let _ = Command::new("taskkill").args(["/IM", "Antigravity.exe", "/F"]).output();
+                let _ = {
+                    let mut c = Command::new("taskkill");
+                    #[cfg(windows)]
+                    c.creation_flags(0x08000000);
+                    c
+                }.args(["/IM", "Antigravity.exe", "/F"]).output();
                 std::thread::sleep(Duration::from_millis(1500));
             }
 

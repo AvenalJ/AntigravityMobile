@@ -48,7 +48,7 @@ async function findLanguageServer() {
         // PowerShell command to find language_server process with csrf_token
         const command = `powershell -NoProfile -Command "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'csrf_token' } | Select-Object ProcessId,Name,CommandLine | ConvertTo-Json"`;
 
-        const { stdout } = await execAsync(command, { timeout: 15000, maxBuffer: 1024 * 1024 });
+        const { stdout } = await execAsync(command, { timeout: 15000, maxBuffer: 1024 * 1024, windowsHide: true });
 
         if (!stdout || stdout.trim().length === 0) {
             console.log('[QuotaService] No language_server process found');
@@ -74,11 +74,14 @@ async function findLanguageServer() {
         for (const proc of processes) {
             const cmdLine = proc.CommandLine || '';
 
-            // Check if this is the Antigravity language server
-            if (!cmdLine.includes('--extension_server_port') || !cmdLine.includes('--csrf_token')) {
+            // Check if this is the Antigravity language server / agy hub
+            if (!cmdLine.includes('--csrf_token')) {
                 continue;
             }
-            if (!/--app_data_dir\s+antigravity\b/i.test(cmdLine)) {
+            if (!cmdLine.includes('--extension_server_port') && !cmdLine.includes('--hub-port') && !cmdLine.includes('--hub')) {
+                continue;
+            }
+            if (!/--app_data_dir[\s=]+antigravity\b/i.test(cmdLine)) {
                 continue;
             }
 
@@ -123,7 +126,7 @@ async function findLanguageServer() {
 async function getProcessListeningPorts(pid) {
     try {
         const command = `powershell -NoProfile -NonInteractive -Command "$ports = Get-NetTCPConnection -State Listen -OwningProcess ${pid} -ErrorAction SilentlyContinue | Select-Object -ExpandProperty LocalPort; if ($ports) { $ports | Sort-Object -Unique }"`;
-        const { stdout } = await execAsync(command, { timeout: 5000 });
+        const { stdout } = await execAsync(command, { timeout: 5000, windowsHide: true });
 
         const ports = [];
         const matches = stdout.match(/\b\d{1,5}\b/g) || [];

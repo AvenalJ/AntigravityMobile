@@ -725,7 +725,7 @@ let cargoChecked = null;
 async function hasCargo() {
     if (cargoChecked !== null) return cargoChecked;
     cargoChecked = await new Promise(r => {
-        const c = spawn(process.platform === 'win32' ? 'cargo.exe' : 'cargo', ['--version'], { shell: true, stdio: 'ignore' });
+        const c = spawn(process.platform === 'win32' ? 'cargo.exe' : 'cargo', ['--version'], { shell: true, stdio: 'ignore', windowsHide: true });
         c.on('error', () => r(false));
         c.on('exit', code => r(code === 0));
     });
@@ -796,7 +796,7 @@ app.post('/api/setup/helper/start', localhostOnly, (req, res) => {
     if (!exe) return res.status(404).json({ success: false, error: 'Helper not built yet.' });
     if (HelperBridge.isConnected()) return res.json({ success: true, alreadyConnected: true });
     try {
-        spawn(exe, [], { detached: true, stdio: 'ignore', cwd: PROJECT_ROOT }).unref();
+        spawn(exe, [], { detached: true, stdio: 'ignore', cwd: PROJECT_ROOT, windowsHide: true, env: { ...process.env, HELPER_NO_SUPERVISE: '1' } }).unref();
         res.json({ success: true });
     } catch (e) { res.status(500).json({ success: false, error: e.message }); }
 });
@@ -1690,7 +1690,7 @@ app.post('/api/chat/conversations/new', async (req, res) => {
 });
 
 // Answer a pending multiple-choice prompt from mobile.
-// body: { kind: 'option'|'other'|'skip', optionXpath?, text?, otherXpath?, submitXpath?, skipXpath? }
+// body: { kind: 'option'|'other'|'skip'|'submit', optionXpath?, text?, otherXpath?, submitXpath?, skipXpath? }
 app.post('/api/chat/answer', async (req, res) => {
     try {
         const { kind, optionXpath, text, otherXpath, submitXpath, skipXpath } = req.body || {};
@@ -1698,6 +1698,12 @@ app.post('/api/chat/answer', async (req, res) => {
         if (kind === 'skip') {
             if (!skipXpath) return res.status(400).json({ success: false, error: 'skipXpath required' });
             const r = await CDP.clickElementByXPath(skipXpath);
+            return res.json(r);
+        }
+
+        if (kind === 'submit') {
+            if (!submitXpath) return res.status(400).json({ success: false, error: 'submitXpath required' });
+            const r = await CDP.clickElementByXPath(submitXpath);
             return res.json(r);
         }
 
@@ -1717,6 +1723,16 @@ app.post('/api/chat/answer', async (req, res) => {
             return res.json(sub);
         }
         res.json(sel);
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// Stop / abort current running agent / task in the IDE
+app.post('/api/chat/stop-agent', async (req, res) => {
+    try {
+        const r = await CDP.stopAgent();
+        res.json(r);
     } catch (e) {
         res.status(500).json({ success: false, error: e.message });
     }
@@ -2555,7 +2571,7 @@ app.post('/api/files/upload', uploadAny.array('files'), (req, res) => {
 // Clipboard sync (phone <-> PC) via PowerShell Get/Set-Clipboard.
 app.get('/api/clipboard', (req, res) => {
     try {
-        const child = spawn('powershell', ['-NoProfile', '-NonInteractive', '-Command', 'Get-Clipboard -Raw']);
+        const child = spawn('powershell', ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-Command', 'Get-Clipboard -Raw'], { windowsHide: true });
         let out = '';
         child.stdout.on('data', d => { out += d.toString(); });
         child.on('close', () => res.json({ text: out.replace(/\r\n$/, '') }));
@@ -2568,7 +2584,7 @@ app.post('/api/clipboard', (req, res) => {
     try {
         const text = String(req.body?.text ?? '');
         // Pass the text via env to avoid any quoting/escaping issues.
-        const child = spawn('powershell', ['-NoProfile', '-NonInteractive', '-Command', 'Set-Clipboard -Value $env:AGCLIP'], {
+        const child = spawn('powershell', ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-Command', 'Set-Clipboard -Value $env:AGCLIP'], { windowsHide: true,
             env: { ...process.env, AGCLIP: text },
         });
         child.on('close', (code) => {
@@ -2608,7 +2624,7 @@ app.post('/api/files/download-zip', (req, res) => {
         const ps = "$ErrorActionPreference='Stop'; " +
             "$items = Get-Content -LiteralPath $env:AGZ_LIST; " +
             "Compress-Archive -LiteralPath $items -DestinationPath $env:AGZ_OUT -Force";
-        const child = spawn('powershell', ['-NoProfile', '-NonInteractive', '-Command', ps], {
+        const child = spawn('powershell', ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-Command', ps], { windowsHide: true,
             env: { ...process.env, AGZ_LIST: listFile, AGZ_OUT: zipFile },
         });
         let errOut = '';

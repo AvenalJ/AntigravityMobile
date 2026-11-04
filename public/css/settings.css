@@ -439,3 +439,122 @@
         }
 
 @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Enhanced Usage Hero styles: collapsible, compact, dismissible */
+        .usage-hero-section {
+            flex-shrink: 0;
+            margin: 8px 12px 4px;
+            padding: 10px 14px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            transition: all 0.2s ease;
+        }
+
+        .usage-hero-section.hidden {
+            display: none !important;
+        }
+
+        .usage-hero-section.collapsed {
+            padding: 8px 12px;
+            margin-bottom: 2px;
+        }
+
+        .usage-hero-section.collapsed #usageHero {
+            display: none !important;
+        }
+
+        .usage-hero-title {
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .usage-hero-summary {
+            font-size: 11.5px;
+            font-weight: 500;
+            color: var(--accent-primary);
+            margin-left: 6px;
+        }
+
+        .usage-hero-actions {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .usage-hero-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 28px;
+            height: 28px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--bg-glass);
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .usage-hero-btn:hover {
+            color: var(--accent-primary);
+            border-color: var(--accent-primary);
+        }
+
+        .usage-hero-btn.usage-hero-close:hover {
+            color: #ef4444;
+            border-color: #ef4444;
+        }
+
+        /* Horizontal scrollable compact grid for mobile */
+        #usageHero .quota-grid {
+            margin-top: 8px;
+            display: flex !important;
+            overflow-x: auto !important;
+            flex-wrap: nowrap !important;
+            gap: 8px !important;
+            padding-bottom: 4px;
+            -webkit-overflow-scrolling: touch;
+            scrollbar-width: thin;
+        }
+
+        #usageHero .quota-card {
+            flex: 0 0 120px !important;
+            min-width: 120px !important;
+            max-width: 130px !important;
+            padding: 10px 8px !important;
+            border-radius: 12px !important;
+        }
+
+        #usageHero .quota-card .quota-ring {
+            width: 58px !important;
+            height: 58px !important;
+        }
+
+        #usageHero .quota-card .model-name {
+            font-size: 11px !important;
+            margin-top: 4px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .usage-toggle-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 5px 10px;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .usage-toggle-chip:hover {
+            border-color: var(--accent-primary);
+            color: var(--accent-primary);
+        }
