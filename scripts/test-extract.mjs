@@ -4,7 +4,7 @@ import { extractStructured } from '../src/antigravity-dom.mjs';
 
 const PORT = process.argv[2] || '9333';
 const list = await (await fetch(`http://127.0.0.1:${PORT}/json/list`)).json();
-const t = list.find(x => x.type === 'page');
+const t = list.find(x => x.url?.includes('extensionView=true')) || list.find(x => x.type === 'page');
 const ws = new WebSocket(t.webSocketDebuggerUrl);
 let idc = 1; const contexts = [];
 const call = (m, p) => new Promise((res, rej) => {

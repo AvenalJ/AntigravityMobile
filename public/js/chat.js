@@ -100,7 +100,69 @@
             }
         }
 
-        function sendQuick(cmd) {
+        async function sendQuick(cmd) {
+            const c = (cmd || '').toLowerCase().trim();
+
+            // 1. If "stop", abort/stop the running agent
+            if (c === 'stop') {
+                try {
+                    const res = await authFetch('/api/chat/stop-agent', { method: 'POST' });
+                    const r = await res.json();
+                    if (r.success) {
+                        showToast('Agent stopped', 'success');
+                        return;
+                    }
+                } catch (e) { }
+            }
+
+            // 2. Check if there is an active question prompt
+            const prompt = window.latestPrompt;
+            if (prompt) {
+                if (c === 'yes' || c === 'continue') {
+                    const opt = (prompt.options || []).find(o =>
+                        /\b(yes|proceed|continue|allow|approve|agree|ok)\b/i.test(o.label) ||
+                        /\(recommended\)/i.test(o.label)
+                    ) || (prompt.options && prompt.options[0]);
+                    if (opt && typeof window.answerPrompt === 'function') {
+                        await window.answerPrompt({ kind: 'option', optionXpath: opt.xpath, submitXpath: prompt.submitXpath });
+                        return;
+                    } else if (prompt.submitXpath && typeof window.answerPrompt === 'function') {
+                        await window.answerPrompt({ kind: 'submit', submitXpath: prompt.submitXpath });
+                        return;
+                    }
+                } else if (c === 'no') {
+                    const opt = (prompt.options || []).find(o =>
+                        /\b(no|deny|reject|cancel|disagree|skip)\b/i.test(o.label)
+                    );
+                    if (opt && typeof window.answerPrompt === 'function') {
+                        await window.answerPrompt({ kind: 'option', optionXpath: opt.xpath, submitXpath: prompt.submitXpath });
+                        return;
+                    } else if (prompt.skipXpath && typeof window.answerPrompt === 'function') {
+                        await window.answerPrompt({ kind: 'skip', skipXpath: prompt.skipXpath });
+                        return;
+                    }
+                }
+            }
+
+            // 3. Check if there are active message action buttons (Run / Accept / Reject)
+            const actions = window.latestActions || [];
+            if (actions.length > 0 && typeof window.forwardAction === 'function') {
+                if (c === 'yes' || c === 'continue') {
+                    const accept = actions.find(a => a.kind === 'accept' || /^(run|accept|allow|yes|continue|proceed|approve|ok)\b/i.test(a.label));
+                    if (accept) {
+                        await window.forwardAction(accept.xpath, accept.label);
+                        return;
+                    }
+                } else if (c === 'no') {
+                    const reject = actions.find(a => a.kind === 'reject' || /^(reject|deny|no|cancel|discard)\b/i.test(a.label));
+                    if (reject) {
+                        await window.forwardAction(reject.xpath, reject.label);
+                        return;
+                    }
+                }
+            }
+
+            // 4. Default fallback: send as chat message
             document.getElementById('chatInput').value = cmd;
             sendChatMessage();
         }

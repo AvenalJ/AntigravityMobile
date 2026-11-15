@@ -14,7 +14,8 @@ async function init() {
     loadAssistChatHistory();
     loadAssistStatusBadge();
     // Usage (model quota) shown front-and-centre on the main view; refresh periodically.
-    loadQuota('usageHero');
+    initUsageHero();
+    if (localStorage.getItem('ag_usage_hero_closed') !== 'true') { loadQuota('usageHero'); }
     setInterval(() => loadQuota('usageHero'), 60000);
 }
 

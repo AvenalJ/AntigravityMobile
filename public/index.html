@@ -49,19 +49,37 @@
 
         <div class="chat-container">
             <!-- Usage (model quota) — front and centre -->
-            <section class="usage-hero-section">
+            <section class="usage-hero-section collapsed" id="usageHeroSection">
                 <div class="usage-hero-head">
-                    <span class="usage-hero-title"><svg class="section-icon" viewBox="0 0 24 24" fill="none"
+                    <span class="usage-hero-title" onclick="toggleUsageHeroCollapse(event)">
+                        <svg class="section-icon" viewBox="0 0 24 24" fill="none"
                             stroke="currentColor" stroke-width="2">
                             <path d="M12 20V10"></path>
                             <path d="M18 20V4"></path>
                             <path d="M6 20v-4"></path>
-                        </svg> Usage</span>
-                    <button class="usage-hero-refresh" onclick="loadQuota('usageHero')" title="Refresh usage"><svg
-                            viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
-                            <polyline points="23 4 23 10 17 10"></polyline>
-                            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
-                        </svg></button>
+                        </svg>
+                        <span>Usage</span>
+                        <span id="usageHeroSummary" class="usage-hero-summary"></span>
+                    </span>
+                    <div class="usage-hero-actions">
+                        <button class="usage-hero-btn" onclick="loadQuota('usageHero')" title="Refresh usage">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                                <polyline points="23 4 23 10 17 10"></polyline>
+                                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                            </svg>
+                        </button>
+                        <button class="usage-hero-btn" id="usageHeroToggleBtn" onclick="toggleUsageHeroCollapse(event)" title="Collapse / Expand">
+                            <svg id="usageHeroToggleIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                                <polyline points="6 9 12 15 18 9"></polyline>
+                            </svg>
+                        </button>
+                        <button class="usage-hero-btn usage-hero-close" onclick="closeUsageHero(event)" title="Hide Usage">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                                <line x1="18" y1="6" x2="6" y2="18"></line>
+                                <line x1="6" y1="6" x2="18" y2="18"></line>
+                            </svg>
+                        </button>
+                    </div>
                 </div>
                 <div id="usageHero"></div>
             </section>
@@ -90,6 +108,7 @@
                     <span id="currentModeLabel">Planning</span>
                     <span class="dropdown-arrow">▾</span>
                 </button>
+                <button class="usage-toggle-chip" id="usageToggleChip" onclick="toggleUsageHeroSection()" title="Toggle Quota Usage"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M12 20V10"></path><path d="M18 20V4"></path><path d="M6 20v-4"></path></svg> <span>Usage</span></button>
             </div>
 
             <!-- Model Dropdown -->

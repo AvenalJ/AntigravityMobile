@@ -120,6 +120,10 @@
             // Weekly usage summary — consumed this period + when the quota resets.
             const w = data.weekly || {};
             const weekUsed = Math.max(0, Math.min(100, Math.round(w.usedPercent || 0)));
+            const summaryEl = document.getElementById('usageHeroSummary');
+            if (summaryEl && containerId === 'usageHero') {
+                summaryEl.textContent = `• ${weekUsed}% used${w.resetIn ? ` (${w.resetIn})` : ''}`;
+            }
             const weeklyHtml = `
                     <div class="quota-week">
                         <div class="quota-week-row">
@@ -194,3 +198,73 @@
             await authFetch(`${serverUrl}/api/messages/clear`, { method: 'POST' });
             showToast('Data cleared', 'success');
         }
+
+/* ============================================
+ * Usage Hero - Collapsible & Dismissible Control
+ * ============================================ */
+
+function initUsageHero() {
+    const closed = localStorage.getItem('ag_usage_hero_closed') === 'true';
+    const collapsed = localStorage.getItem('ag_usage_hero_collapsed') !== 'false'; // default collapsed
+    const section = document.getElementById('usageHeroSection');
+    if (!section) return;
+    if (closed) {
+        section.classList.add('hidden');
+    } else if (collapsed) {
+        section.classList.add('collapsed');
+        updateUsageHeroToggleIcon(true);
+    } else {
+        section.classList.remove('collapsed');
+        updateUsageHeroToggleIcon(false);
+    }
+}
+
+function closeUsageHero(e) {
+    if (e) e.stopPropagation();
+    const section = document.getElementById('usageHeroSection');
+    if (!section) return;
+    section.classList.add('hidden');
+    localStorage.setItem('ag_usage_hero_closed', 'true');
+}
+
+function openUsageHero() {
+    const section = document.getElementById('usageHeroSection');
+    if (!section) return;
+    section.classList.remove('hidden');
+    localStorage.setItem('ag_usage_hero_closed', 'false');
+    loadQuota('usageHero');
+}
+
+function toggleUsageHeroSection() {
+    const section = document.getElementById('usageHeroSection');
+    if (!section) return;
+    if (section.classList.contains('hidden')) {
+        openUsageHero();
+    } else {
+        closeUsageHero();
+    }
+}
+
+function toggleUsageHeroCollapse(e) {
+    if (e) e.stopPropagation();
+    const section = document.getElementById('usageHeroSection');
+    if (!section) return;
+    if (section.classList.contains('hidden')) {
+        section.classList.remove('hidden');
+        localStorage.setItem('ag_usage_hero_closed', 'false');
+    }
+    const isCollapsed = section.classList.toggle('collapsed');
+    localStorage.setItem('ag_usage_hero_collapsed', isCollapsed ? 'true' : 'false');
+    updateUsageHeroToggleIcon(isCollapsed);
+    if (!isCollapsed) {
+        loadQuota('usageHero');
+    }
+}
+
+function updateUsageHeroToggleIcon(isCollapsed) {
+    const icon = document.getElementById('usageHeroToggleIcon');
+    if (!icon) return;
+    icon.innerHTML = isCollapsed
+        ? '<polyline points="6 9 12 15 18 9"></polyline>'
+        : '<polyline points="18 15 12 9 6 15"></polyline>';
+}

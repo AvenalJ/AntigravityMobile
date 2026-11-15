@@ -10,7 +10,7 @@
 import WebSocket from 'ws';
 import * as TelegramBot from './telegram-bot.mjs';
 import * as Config from './config.mjs';
-import { clickElementByXPath, getPreferredWorkspace } from './cdp-client.mjs';
+import { clickElementByXPath, getPreferredWorkspace, candidatePorts } from './cdp-client.mjs';
 import { extractStructured, extractConversations, switchConversation, newConversation } from './antigravity-dom.mjs';
 
 // Notification state tracker (avoids duplicate alerts)
@@ -58,22 +58,33 @@ function hashString(str) {
 async function findTargets() {
     const targets = [];
     const preferred = getPreferredWorkspace();
+    const candidateList = typeof candidatePorts === 'function' ? candidatePorts() : [];
+    const ports = [...new Set([...candidateList, ...CDP_PORTS])];
 
-    for (const port of CDP_PORTS) {
+    for (const port of ports) {
         try {
             const res = await fetch(`http://127.0.0.1:${port}/json/list`, {
                 signal: AbortSignal.timeout(2000)
             });
             const list = await res.json();
 
-            // Look for workbench pages
-            const workbenches = list.filter(t =>
+            // Look for webview iframes and workbench pages
+            const matching = list.filter(t =>
+                t.url?.includes('extensionView=true') ||
                 t.url?.includes('workbench.html') ||
                 t.title?.includes('Antigravity') ||
-                t.type === 'page'
+                t.type === 'page' ||
+                t.type === 'iframe'
             );
 
-            workbenches.forEach(t => targets.push({ ...t, port }));
+            // Prioritize extensionView=true (chat webview) targets first
+            matching.sort((a, b) => {
+                const aChat = a.url?.includes('extensionView=true') ? 1 : 0;
+                const bChat = b.url?.includes('extensionView=true') ? 1 : 0;
+                return bChat - aChat;
+            });
+
+            matching.forEach(t => targets.push({ ...t, port }));
         } catch (e) { /* port not available */ }
     }
 
@@ -82,7 +93,9 @@ async function findTargets() {
         const preferredTargets = targets.filter(t =>
             t.title?.toLowerCase().startsWith(preferred.toLowerCase() + ' ') ||
             t.title?.toLowerCase().startsWith(preferred.toLowerCase() + ' —') ||
-            t.title?.toLowerCase() === preferred.toLowerCase()
+            t.title?.toLowerCase() === preferred.toLowerCase() ||
+            t.url?.toLowerCase().includes(encodeURIComponent(preferred.toLowerCase())) ||
+            t.url?.toLowerCase().includes(preferred.toLowerCase())
         );
         if (preferredTargets.length > 0) {
             console.log(`🎯 Chat stream targeting workspace "${preferred}" (${preferredTargets.length} targets)`);
@@ -744,34 +757,62 @@ export async function startChatStream(updateCallback, pollMs = 2000) {
         return { success: false, error: 'No CDP targets found' };
     }
 
-    // Try each target until we find one with #cascade
+    // Try each target until we find one with #cascade OR structured chat
     for (const target of targets) {
         try {
-            console.log(`🔍 Checking ${target.title}`);
+            console.log(`🔍 Checking ${target.title || target.url}`);
             const cdp = await connectCDP(target.webSocketDebuggerUrl);
-            const contextId = await findCascadeContext(cdp);
+            let contextId = await findCascadeContext(cdp);
+            let streamMode = 'legacy';
+
+            if (!contextId) {
+                const structured = await findStructuredContext(cdp);
+                if (structured) {
+                    contextId = structured.contextId;
+                    streamMode = 'structured';
+                }
+            }
 
             if (contextId) {
-                console.log(`✅ Found cascade in context ${contextId}`);
+                console.log(`✅ Found ${streamMode} chat in context ${contextId}`);
                 connection = cdp;
 
                 // Start polling
                 const poll = async () => {
                     if (!connection) return;
 
-                    const contextId = await findCascadeContext(connection);
-                    if (!contextId) return;
-
-                    const chat = await captureChat(connection, contextId);
-                    if (chat && chat.html) {
-                        const hash = hashString(chat.html);
-                        if (hash !== lastHash) {
-                            lastHash = hash;
-                            if (onChatUpdate) {
-                                onChatUpdate(chat);
+                    if (streamMode === 'structured') {
+                        const model = await extractStructured(connection, contextId);
+                        if (model && model.found) {
+                            const hash = hashString(JSON.stringify(model.messages) + (model.prompt ? JSON.stringify(model.prompt) : ''));
+                            if (hash !== lastHash) {
+                                lastHash = hash;
+                                if (onChatUpdate) {
+                                    onChatUpdate({
+                                        structured: true,
+                                        messageCount: model.messages.length,
+                                        messages: model.messages,
+                                        model: model.model,
+                                        prompt: model.prompt,
+                                        artifact: model.artifact
+                                    });
+                                }
                             }
-                            // Telegram notifications on state changes
-                            checkAndNotify(chat.html);
+                        }
+                    } else {
+                        const contextIdNow = await findCascadeContext(connection);
+                        if (!contextIdNow) return;
+
+                        const chat = await captureChat(connection, contextIdNow);
+                        if (chat && chat.html) {
+                            const hash = hashString(chat.html);
+                            if (hash !== lastHash) {
+                                lastHash = hash;
+                                if (onChatUpdate) {
+                                    onChatUpdate(chat);
+                                }
+                                checkAndNotify(chat.html);
+                            }
                         }
                     }
 
@@ -785,7 +826,7 @@ export async function startChatStream(updateCallback, pollMs = 2000) {
                 // Start polling interval
                 pollInterval = setInterval(poll, pollMs);
 
-                return { success: true, target: target.title };
+                return { success: true, target: target.title || target.url };
             } else {
                 cdp.ws.close();
             }
@@ -794,7 +835,7 @@ export async function startChatStream(updateCallback, pollMs = 2000) {
         }
     }
 
-    return { success: false, error: 'No cascade element found in any target' };
+    return { success: false, error: 'No chat element found in any target' };
 }
 
 /**

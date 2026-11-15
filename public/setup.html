@@ -292,7 +292,12 @@ async function poll() {
     set('cdpActive', s.cdp.active ? 'ok' : (launching ? 'spin' : 'warn'));
     txt('cdpDetail', s.cdp.active ? `port ${s.cdp.port} ✓` : (launching ? 'waiting…' : `nothing on port ${s.cdp.port}`));
     show('cdpHelp', !s.cdp.active && !!ag);
-    if (s.cdp.active) launching = false;
+    if (s.cdp.active) {
+        launching = false;
+    } else if (!!ag && !launching && !window._autoLaunchDone) {
+        window._autoLaunchDone = true;
+        launchAntigravity();
+    }
 
     // Step 2 — Helper
     const b = s.helper.build || {};
