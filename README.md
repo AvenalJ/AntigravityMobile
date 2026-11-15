@@ -2,7 +2,6 @@
 
 Mobile dashboard, native Android app, and full remote control for [Antigravity IDE](https://antigravity.google). Monitor conversations, drive your agent, and see your whole desktop — all from your phone.
 
-> Fork of [AvenalJ/AntigravityMobile](https://github.com/AvenalJ/AntigravityMobile) extended with a native Android companion app, whole-desktop remote control, one-time device pairing, and an interactive setup wizard.
 
 <p align="center">
   <img src="screenshots/screenshot.png" width="620" alt="Admin Panel Landscape" style="border:1px solid #30363d;border-radius:8px;" />
